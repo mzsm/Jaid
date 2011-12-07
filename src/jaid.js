@@ -8,7 +8,7 @@
 
 (function(window){
 	/**
-	 * Juid
+	 * Jaid
 	 * @constructor
 	 * @param {Object} options 引数オブジェクト
 	 * @param {String} options.name データベース名
