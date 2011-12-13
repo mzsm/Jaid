@@ -135,19 +135,68 @@
 		 * @param {Function} callback コールバック関数
 		 */
 		_upgrade: function(tx, oldVersion, callback){
+			var versionHistoryKeys;
 			if(oldVersion == 0 || oldVersion == ''){
 				//新規作成の場合
 				//すべてのオブジェクトストアとインデックスを作成する
 				for(var i=0; i<this.models.length; i++){
-					var model = this.models[i];
-					this.createObjectStore(model);
+					this.createObjectStore(this.models[i]);
 				}
 			}else{
 				//更新の場合
-				
-				for(var i=0; i<this.models.length; i++){
-					var model = this.models[i];
-					this.createObjectStore(model);
+				if(this.versionHistory){
+					versionHistoryKeys  = Object.keys(this.versionHistory);
+					versionHistoryKeys.sort();
+					//バージョンの古い方の履歴から順に実行していく
+					for(var i=0; i<versionHistoryKeys.length; i++){
+						if(versionHistoryKeys[i] <= oldVersion){
+							continue;
+						}
+						var upgradeVersion = versionHistoryKeys[i];
+						var upgradeOperate = this.versionHistory[upgradeVersion];
+						var createdObjectStores = [];
+						if('remove' in upgradeOperate){
+							//オブジェクトストア削除
+							for(var j=0; j<upgradeOperate.remove.length; j++){
+								this._deleteObjectStore(upgradeOperate.remove[j]);
+							}
+						}
+						if('create' in upgradeOperate){
+							//オブジェクトストア作成
+							for(var j=0; j<upgradeOperate.create.length; j++){
+								for(var k=0; k<this.models.length; k++){
+									if(upgradeOperate.create[j] == this.models[k].name){
+										this._createObjectStore(this.models[k]);
+										break;
+									}
+								}
+							}
+							createdObjectStores = upgradeOperate.create;
+						}
+						//各オブジェクトストアにおけるindexの作成・削除
+						for(var j=0; j<this.models.length; j++){
+							if(createdObjectStores.length &&
+							   createdObjectStores.indexOf(this.models[j].name) != -1 ||
+							   !this.models[j].versionHistory ||
+							   !this.models[j].versionHistory[upgradeVersion]
+							   ){
+								continue;
+							}
+							var model = this.models[j];
+							var modelUpgradeOperate = model.versionHistory[upgradeVersion];
+							var objectStore = tx.objectStore(model.name);
+							if('remove' in modelUpgradeOperate){
+								for(var k=0; k<modelUpgradeOperate.remove.length; k++){
+									this._deleteIndex(objectStore, modelUpgradeOperate.remove[k]);
+								}
+							}
+							if('create' in modelUpgradeOperate){
+								for(var k=0; k<modelUpgradeOperate.remove.length; k++){
+									this._deleteIndex(objectStore, modelUpgradeOperate.remove[k]);
+								}
+							}
+						}
+					}
 				}
 			}
 			callback && callback(oldVersion);
@@ -155,7 +204,7 @@
 		/**
 		 * オブジェクトストアを作成する
 		 * 
-		 * なお、optionsの指定方法がIDBObjectStoreParametersとIDBIndexOptionalParametersに
+		 * なお、optionsの指定方法がIDBObjectStoreParametersに
 		 * 変わるらしいのでブラウザで実装され次第、対応する。
 		 * @private
 		 * @param {JaidModel} model
@@ -165,17 +214,12 @@
 					keyPath: model._keyPath,
 					autoIncrement: model.autoIncrement
 		    	},
-		    	store = this.IDBDatabase.createObjectStore(model.name, options);
+		    	store = this.db.createObjectStore(model.name, options);
 			for(var i=0; i<model.properties.length; i++){
-				var property = model.properties[i];
-				var options = {
-						unique: property.unique,
-						multiEntry: property.multiEntry
-					};
-				if(property.index){
-					store.createIndex(property.name, property.keyPath, options);
-				};
-			};
+				if(!!model.properties[i].index){
+					this._createIndex(store, model.properties[i]);
+				}
+			}
 		},
 		/**
 		 * オブジェクトストアを削除する
@@ -185,6 +229,29 @@
 		_deleteObjectStore: function(objectStoreName){
 			//作成時と違って特に何をするでも無いので引数は名前だけで良い
 			return this.db.deleteObjectStore(objectStoreName);
+		},
+		/**
+		 * オブジェクトストアにindexを作成する
+		 * 
+		 * なお、optionsの指定方法がIDBIndexOptionalParametersに
+		 * 変わるらしいのでブラウザで実装され次第、対応する。
+		 * @param {IDBObjectStore} store オブジェクトストア
+		 * @param {JaidProperty} property インデックスを作成するプロパティ
+		 */
+		_createIndex: function(store, property){
+			var options = {
+					unique: property.unique,
+					multiEntry: property.multiEntry
+				};
+			store.createIndex(property.indexName, property.name, options);
+		},
+		/**
+		 * オブジェクトストアからindexを削除する
+		 * @param {IDBObjectStore} store オブジェクトストア
+		 * @param {String} indexName index名
+		 */
+		_deleteIndex: function(store, indexName){
+			return store.deleteIndex(indexName);
 		},
 		/**
 		 * データベースとの接続を閉じる。
