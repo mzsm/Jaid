@@ -5,38 +5,42 @@
 <title></title>
 <link type="text/css" rel="stylesheet" href="./css/examples.css">
 <script>
+//こんなふうに書きたいなーってイメージで書いてみてから、それで動くように実装していく作戦。
+
 var Todo = function(title, expire){
 	this.name = name;
 	this.expire = expire;
 }
 
-var jaid = new Jaid({
-	name: 'jaidTodoList',
-	version: 1,
-	//modelsプロパティで、モデル定義を列挙します
-	models: [
-		new JaidModel({
-			name: 'todo',
-			cls: Todo,	//Todo
-			keyProperty: '',
-			properties: [
-				new JaidProperty(),
-				new JaidProperty()
-			]
-		}),
-		new JaidModel(
-		)
-	],
-	//JaidModelの中で指定されたモデルオブジェクトに対し、JaidはexportToとimportの2つのメソッドを追加します。
-	//もしすでに名前が重複している場合はmodelPrefixを指定することにより名称の重複を防ぎます。
-	modelPrefix: 'hoge',
-	success: function(){
-	},
-	error: function(){
-	},
-	upgrade: function(){
+var jaid = new Jaid(
+	'jaidTodoList',
+	10,
+	{
+		//modelsプロパティで、モデル定義を列挙します
+		models: [
+			new JaidModel(
+				'todo',
+				Todo,
+				[
+					new JaidProperty('id'),
+					new JaidProperty('hoge', {index:'hogeIndex'})
+				],
+				{
+					keyProperty: 'id',
+				}
+			)
+		],
+		//JaidModelの中で指定されたモデルオブジェクトに対し、JaidはexportToとimportの2つのメソッドを追加します。
+		//もしすでに名前が重複している場合はmodelPrefixを指定することにより名称の重複を防ぎます。
+		modelPrefix: 'hoge',
+		success: function(){
+		},
+		error: function(){
+		},
+		upgrade: function(){
+		}
 	}
-});
+);
 
 window.addEventListener('DOMContentLoaded', function(){
 });

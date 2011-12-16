@@ -10,42 +10,42 @@
 	/**
 	 * Jaid
 	 * @constructor
-	 * @param {Object} options 引数オブジェクト
-	 * @param {String} options.name データベース名
-	 * @param {Number} options.version バージョン番号
-	 * @param {Boolean} options.autoOpen 自動的に接続する。デフォルト値はtrueなので、
+	 * @param {String} name データベース名
+	 * @param {Number} version バージョン番号
+	 * @param {Object} optionalParameters 引数オブジェクト
+	 * @param {Boolean} optionalParameters.autoOpen 自動的に接続する。デフォルト値はtrueなので、
 	 *     自動で接続したくない場合のみ明示的にfalseを指定する。
 	 * @param {Function} success 接続成功時の処理。
 	 *     ({IDBDatabase} データベースオブジェクト)
-	 *     options.connectがfalseの場合は無視される。
+	 *     optionalParameters.connectがfalseの場合は無視される。
 	 * @param {Function} error 接続失敗時の処理。
 	 *     ({Event} イベントオブジェクト)
-	 *     options.connectがfalseの場合は無視される。
+	 *     optionalParameters.connectがfalseの場合は無視される。
 	 * @param {Function} upgrade バージョン更新処理 
 	 *     ({Number|String} oldVersion 更新前バージョン,
 	 *      {Number|String} newVersion 更新後バージョン)
-	 *     options.connectがfalseの場合は無視される。
-	 * @param {Array} options.models JaidModelのリスト
-	 * @param {String} options.modelPrefix モデルに追加するメソッド名のプリフィックス
-	 * @param {Array} options.versionHistory バージョン更新履歴
+	 *     optionalParameters.connectがfalseの場合は無視される。
+	 * @param {Array} optionalParameters.models JaidModelのリスト
+	 * @param {String} optionalParameters.modelPrefix モデルに追加するメソッド名のプリフィックス
+	 * @param {Array} optionalParameters.versionHistory バージョン更新履歴
 	 * @property {String} dbName データベース名
 	 * @property {Number} dbVersion バージョン番号
 	 * @property {IDBDatabase} db 接続中のデータベースオブジェクト
 	 * @property {String} modelProperty オブジェクトからモデル定義を取得するためのプロパティ名
 	 */
-	var Jaid = function(options){
+	var Jaid = function(name, version, optionalParameters){
 		this.db;
-		this.name = options.name;
-		this.version = options.version;
-		this.models = options.models || [];
-		this.versionHistory = options.versionHistory || [];
-		this._modelPrefix = options.modelPregix || '';
+		this.name = name;
+		this.version = version;
+		this.models = optionalParameters.models || [];
+		this.versionHistory = optionalParameters.versionHistory || [];
+		this._modelPrefix = optionalParameters.modelPregix || '';
 		//モデルの紐付け
 		for(var i=0; this.models.length; i++){
 			this.models[i]._init();
 		}
-		if(options.autoOpen !== false)
-			this.open(options.success, options.error, options.upgrade);
+		if(optionalParameters.autoOpen !== false)
+			this.open(optionalParameters.success, optionalParameters.error, optionalParameters.upgrade);
 	};
 	Jaid.prototype = {
 		/**
@@ -140,7 +140,7 @@
 				//新規作成の場合
 				//すべてのオブジェクトストアとインデックスを作成する
 				for(var i=0; i<this.models.length; i++){
-					this.createObjectStore(this.models[i]);
+					this._createObjectStore(this.models[i]);
 				}
 			}else{
 				//更新の場合
@@ -192,7 +192,7 @@
 							}
 							if('create' in modelUpgradeOperate){
 								for(var k=0; k<modelUpgradeOperate.remove.length; k++){
-									this._deleteIndex(objectStore, modelUpgradeOperate.remove[k]);
+									this._createIndex(objectStore, modelUpgradeOperate.create[k]);
 								}
 							}
 						}
@@ -241,7 +241,9 @@
 		_createIndex: function(store, property){
 			var options = {
 					unique: property.unique,
-					multiEntry: property.multiEntry
+					//multiEntryは古いブラウザでは実装されていないので、
+					//実装されたChrome17とFirefox11がStableになるまで対応しないことにする。
+					//multiEntry: property.multiEntry
 				};
 			store.createIndex(property.indexName, property.name, options);
 		},
@@ -267,6 +269,60 @@
 			else
 				throw new Error('not initialized.');
 		},
+		/**
+		 * トランザクションの実行
+		 * @param {Array} objectStoreList トランザクション範囲とするオブジェクトストアのリスト
+		 * @param {Boolean} writable 書き込みを伴うかどうか
+		 * @param {Function} txFunction トランザクションの本体
+		 * @param {Function} complete トランザクション完了後の処理
+		 * @param {Function} abort トランザクション中止後の処理
+		 */
+		execTransaction: function(objectStoreList, writable, txFunction, complete, abort){
+			var transaction = this.db.transaction(
+					(objectStoreList && objectStoreList.length)? objectStoreList : this.db.objectStoreNames,
+					(writable)? this.IDBTransaction.READ_WRITE : this.IDBTransaction.READ_ONLY
+				);
+			transaction.oncomplete = complete;
+			transaction.onabort = abort;
+			
+			//トランザクション処理実行
+			txFunction(transaction);
+			
+			return transaction;
+		},
+		/**
+		 * DBに保存されているデータをモデルオブジェクトに読み込む
+		 * @param {Any} 読み込みたいオブジェクト、または配列
+		 */
+		get: function(object, success, error, complete){
+			if(Array.isArray(object)){
+				this._getAll(object, success, error, complete);
+			}else{
+				this._get(object, success, error, complete);
+			}
+		},
+		_getAll: function(object, success, error, complete){
+			var ObjectStoreList = [];
+			for(var i=0; i<object.length; i++){
+				var model = object[i][prefix+'model'];
+				if(objectStoreList.indexOf(model.name) == -1){
+					objectStoreList.push(model.name);
+				}
+			}
+			var tx = this.execTransaction(objectStoreList, false, function(tx){
+				
+			});
+		},
+		_get: function(object, success, error, complete){
+			var model = object[prefix+'model'],
+				objectStoreList = [model.name]
+			var tx = this.execTransaction(objectStoreList, false, function(tx){
+			});
+		},
+		
+		put: function(object, success, error, complete){
+		},
+		
 		/**
 		 * データベースを削除する
 		 * @param {Function} callback 削除完了後に実行するコールバック関数
@@ -311,22 +367,22 @@
 	/**
 	 * JaidModel - オブジェクトストアのモデル定義
 	 * @constructor
-	 * @param {Object} options
-	 * @param {String} options.name オブジェクトストア名
-	 * @param {Function} options.cls オブジェクトストアとひもづけたいクラス(のコンストラクタ関数)
-	 * @property {String} name オブジェクトストア名
-	 * @property {String} keyProperty オブジェクト内でキーを格納しているプロパティ名
-	 * @property {Boolean} autoIncrement キーIDを自動的に付与するかどうか
-	 * @property {Array} properties DBに保存するプロパティリスト
-	 * @property {Object} versionHistory
+	 * @param {String} name オブジェクトストア名
+	 * @param {Function} cls オブジェクトストアとひもづけたいクラス(のコンストラクタ関数)
+	 * @param {Array} properties DBに保存するプロパティリスト
+	 * @param {Object} optionalParameters
+	 * @param {String} optionalParameters.keyProperty オブジェクト内でキーを格納しているプロパティ名。省略時はid
+	 * @param {Boolean} optionalParameters.autoIncrement キーIDを自動的に付与するかどうか
+	 * @param {Object} optionalParameters.versionHistory バージョン変更履歴
 	 */
-	var JaidModel = function(options){
-		this.name = options.name;
-		this.cls = options.cls;
-		this.keyProperty = options.keyProperty;
-		this.autoIncrement = !!options.autoIncrement || false;
-		this.properties = options.properties || [];
-		//キープロパティが保存対象に含まれていればin-line key、なければout-of-line keyとなる。
+	var JaidModel = function(name, cls, properties, optionalParameters){
+		this.name = optionalParameters.name;
+		this.cls = optionalParameters.cls;
+		this.keyProperty = (optionalParameters.keyProperty !== undefined)? optionalParameters.keyProperty : 'id';
+		this.autoIncrement = !!optionalParameters.autoIncrement || false;
+		this.versionHistory = optionalParameters.versionHistory;
+		this.properties = properties || [];
+		//キープロパティが保存対象に含まれていればin-lineキー、なければout-of-lineキーとなる。
 		this._keyPath = null;
 		for(var i=0; i<this.properties.length; i++){
 			if(this.properties[i].name == this.keyProperty){
@@ -382,24 +438,28 @@
 	 * JaidProperty - プロパティ
 	 * @constructor
 	 * @param {String} name プロパティ名
-	 * @param {Object} options オプション
-	 * @param {Boolean} options.index インデックス化
-	 * @param {Boolean} options.unique ユニーク指定
-	 * @param {Boolean} options.multiEntry マルチエントリー指定
-	 * @param {String} options.indexName インデックス名
-	 * @param {Function} options.onload IndexedDBからオブジェクトへデータを読み込むときの変換関数
-	 * @param {Function} options.onsave オブジェクトからIndexedDBへデータを書き出すときの変換関数
+	 * @param {Object} optionalParameters オプション
+	 * @param {Boolean} optionalParameters.index インデックス名。省略時はインデックス化しない
+	 * @param {Boolean} optionalParameters.unique ユニーク指定
+	 * @param {Boolean} optionalParameters.multiEntry マルチエントリー指定
+	 * @param {Function} optionalParameters.onload IndexedDBからオブジェクトへデータを読み込むときの変換関数
+	 * @param {Function} optionalParameters.onsave オブジェクトからIndexedDBへデータを書き出すときの変換関数
 	 */
-	var JaidProperty = function(name, options){
+	var JaidProperty = function(name, optionalParameters){
 		this.name = name;
-		options = options || {};
-		this.index = !!options.index;
-		this.unique = !!options.unique;
-		this.multiEntry = !!options.multiEntry;
-		this.indexName = options.indexName || this.name;
-		this.onload = options.onload;
-		this.onsave = options.onsave;
+		optionalParameters = optionalParameters || {};
+		this._index = !!optionalParameters.index;	//インデックス化するかどうか
+		this.index = (this._index)? optionalParameters.index : null;
+		this.unique = !!optionalParameters.unique;
+		this.multiEntry = !!optionalParameters.multiEntry;
+		this.onload = optionalParameters.onload;
+		this.onsave = optionalParameters.onsave;
 	};
+	JaidProperty.prototype = {
+		isIndex: function(){
+			return this._index;
+		}
+	}
 	
 	//もしグローバル変数名が競合した場合はここを変更する
 	window.Jaid = Jaid;
