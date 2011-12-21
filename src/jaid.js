@@ -34,15 +34,16 @@
 	 * @property {String} modelProperty オブジェクトからモデル定義を取得するためのプロパティ名
 	 */
 	var Jaid = function(name, version, optionalParameters){
+		optionalParameters = optionalParameters || {};
 		this.db;
 		this.name = name;
 		this.version = version;
 		this.models = optionalParameters.models || [];
 		this.versionHistory = optionalParameters.versionHistory || [];
-		this._modelPrefix = optionalParameters.modelPregix || '';
+		this._modelPrefix = optionalParameters.modelPrefix || '';
 		//モデルの紐付け
-		for(var i=0; this.models.length; i++){
-			this.models[i]._init();
+		for(var i=0; i<this.models.length; i++){
+			this.models[i]._init(this._modelPrefix);
 		}
 		if(optionalParameters.autoOpen !== false)
 			this.open(optionalParameters.success, optionalParameters.error, optionalParameters.upgrade);
@@ -211,7 +212,7 @@
 		 */
 		_createObjectStore: function(model){
 			var options = {
-					keyPath: model._keyPath,
+					keyPath: model.keyProperty,
 					autoIncrement: model.autoIncrement
 		    	},
 		    	store = this.db.createObjectStore(model.name, options);
@@ -295,35 +296,37 @@
 		 * @param {Object|Array} 読み込みたいオブジェクト、または配列
 		 */
 		get: function(object, success, error){
+			var self = this;
 			object = this._toArray(object);
 			var objectStoreList = this._getObjectStoreList(object);
 			var tx = this.execTransaction(objectStoreList, false, function(tx){
-				for(var i=0; i<object.length; i++){
-					var model = object[i][this.prefix+'model'];
+				object.forEach(function(obj){
+					var model = obj[self._modelPrefix+'model'];
 					var objectStore = tx.objectStore(model.name);
 					var req = objectStore.get(model[i][[model.keyProperty]]);
 					req.onsuccess = function(e){
 						if(this.result){
-							object[i][this.prefix+'import'](this.result);
+							obj[self._modelPrefix+'import'](this.result);
 						}
 					};
-				}
+				});
 			}, success, error);
 		},
 		getByIndex: function(object, property, success, error){
+			var self = this;
 			object = this._toArray(object);
 			var objectStoreList = this._getObjectStoreList(object);
 			var tx = this.execTransaction(objectStoreList, false, function(tx){
-				for(var i=0; i<object.length; i++){
-					var model = object[i][this.prefix+'model'];
+				object.forEach(function(obj){
+					var model = obj[self._modelPrefix+'model'];
 					var objectStore = tx.objectStore(model.name);
 					var req = objectStore.index(property).get(model[i][[property]]);
 					req.onsuccess = function(e){
 						if(this.result){
-							object[i][this.prefix+'import'](this.result);
+							obj[self._modelPrefix+'import'](this.result);
 						}
 					};
-				}
+				});
 			}, success, error);
 		},
 		/**
@@ -331,18 +334,19 @@
 		 * @param {Object|Array} 保存したいオブジェクト、または配列
 		 */
 		put: function(object, success, error){
+			var self = this;
 			object = this._toArray(object);
 			var objectStoreList = this._getObjectStoreList(object);
 			var tx = this.execTransaction(objectStoreList, true, function(tx){
-				for(var i=0; i<object.length; i++){
-					var model = object[i][this.prefix+'model'];
+				object.forEach(function(obj){
+					var model = obj[self._modelPrefix+'model'];
 					var objectStore = tx.objectStore(model.name);
-					var dataObject = object[i][this.prefix+'export']();
+					var dataObject = obj[self._modelPrefix+'export']();
 					var req = objectStore.put(dataObject);
 					req.onsuccess = function(){
-						object[i][model.keyProperty] = this.result;
+						obj[model.keyProperty] = this.result;
 					}
-				}
+				});
 			}, success, error);
 		},
 		/**
@@ -389,7 +393,7 @@
 		_getObjectStoreList: function(object){
 			var objectStoreList = [];
 			for(var i=0; i<object.length; i++){
-				var model = object[i][this.prefix+'model'];
+				var model = object[i][this._modelPrefix+'model'];
 				if(objectStoreList.indexOf(model.name) == -1){
 					objectStoreList.push(model.name);
 				}
@@ -406,25 +410,25 @@
 	 * @param {Function} cls オブジェクトストアとひもづけたいクラス(のコンストラクタ関数)
 	 * @param {Array} properties DBに保存するプロパティリスト
 	 * @param {Object} optionalParameters
-	 * @param {String} optionalParameters.keyProperty オブジェクト内でキーを格納しているプロパティ名。省略時はid
-	 * @param {Boolean} optionalParameters.autoIncrement キーIDを自動的に付与するかどうか
 	 * @param {Object} optionalParameters.versionHistory バージョン変更履歴
 	 */
 	var JaidModel = function(name, cls, properties, optionalParameters){
-		this.name = optionalParameters.name;
-		this.cls = optionalParameters.cls;
-		this.autoIncrement = !!optionalParameters.autoIncrement || false;
+		optionalParameters = optionalParameters || {};
+		this.name = name;
+		this.cls = cls;
 		this.versionHistory = optionalParameters.versionHistory;
 		this.properties = properties || [];
 		//キーとなるプロパティを探す(out-of-lineキーには対応しない)
 		this.keyPropery;
+		this.autoIncrement;
 		for(var i=0; i<this.properties.length; i++){
 			if(this.properties[i].key){
 				this.keyProperty = this.properties[i].name;
+				this.autoIncrement = !!this.properties[i].autoIncrement;
 				break;
 			};
 		};
-		if(!keyProperty){
+		if(!this.keyProperty){
 			throw new Error('Key property not found.');
 		}
 	};
@@ -445,7 +449,7 @@
 				dataObj = dataObj || {};
 				for(var i=0; i<model.properties.length; i++){
 					var property = model.properties[i];
-					if(this[property.name] || property.name != model.keyProperty){
+					if(this[property.name] !== null && this[property.name] !== undefined){
 						dataObj[property.name] = property.onsave? property.onsave(this[property.name]): this[property.name];
 					};
 				};
@@ -476,25 +480,38 @@
 	 * @constructor
 	 * @param {String} name プロパティ名
 	 * @param {Object} optionalParameters オプション
-	 * @param {Boolean} optionalParameters.index インデックス名。省略時はインデックス化しない
-	 * @param {Boolean} optionalParameters.unique ユニーク指定
-	 * @param {Boolean} optionalParameters.multiEntry マルチエントリー指定
-	 * @param {Function} optionalParameters.onload IndexedDBからオブジェクトへデータを読み込むときの変換関数
-	 * @param {Function} optionalParameters.onsave オブジェクトからIndexedDBへデータを書き出すときの変換関数
+	 * @param {Boolean} optionalParameters.index trueにするとこのプロパティがキーとなる。
+	 * @param {Boolean} optionalParameters.autoIncrement キー指定時のオートインクリメント指定
+	 * @param {Boolean} optionalParameters.index trueにするとこのプロパティがインデックス化される。
+	 * @param {Boolean} optionalParameters.unique インデックス化時のユニーク指定
+	 * @param {Boolean} optionalParameters.multiEntry インデックス化時のマルチエントリー指定
+	 * @param {Object} optionalParameters.formatter
+	 * @param {Function} optionalParameters.formatter.onsave オブジェクトからIndexedDBへデータを書き出すときの変換関数
+	 * @param {Function} optionalParameters.formatter.onload IndexedDBからオブジェクトへデータを読み込むときの変換関数
 	 */
 	var JaidProperty = function(name, optionalParameters){
 		this.name = name;
 		optionalParameters = optionalParameters || {};
+		this.key = !!optionalParameters.key;
+		this.autoIncrement = this.key && !!optionalParameters.autoIncrement;
 		this._index = !!optionalParameters.index;	//インデックス化するかどうか
 		this.index = (this._index)? optionalParameters.index : null;
 		this.unique = !!optionalParameters.unique;
 		this.multiEntry = !!optionalParameters.multiEntry;
-		this.onload = optionalParameters.onload;
-		this.onsave = optionalParameters.onsave;
+		if(optionalParameters.formatter){
+			this.onsave = optionalParameters.formatter.onsave;
+			this.onload = optionalParameters.formatter.onload;
+		}
 	};
 	JaidProperty.prototype = {
 		isIndex: function(){
 			return this._index;
+		}
+	};
+	JaidProperty.FORMATTER = {
+		JSON: {
+			onsave: function(val){return JSON.stringfy(val);},
+			onload: function(val){return JSON.parse(val);}
 		}
 	}
 	
