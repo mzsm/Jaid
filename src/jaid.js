@@ -136,7 +136,7 @@
 		 */
 		_upgrade: function(tx, oldVersion, callback){
 			var versionHistoryKeys;
-			if(oldVersion == 0 || oldVersion == ''){
+			if(oldVersion === 1 || oldVersion === ''){
 				//新規作成の場合
 				//すべてのオブジェクトストアとインデックスを作成する
 				for(var i=0; i<this.models.length; i++){
@@ -245,7 +245,7 @@
 					//実装されたChrome17とFirefox11がStableになるまで対応しないことにする。
 					//multiEntry: property.multiEntry
 				};
-			store.createIndex(property.indexName, property.name, options);
+			store.createIndex(property.name, property.name, options);
 		},
 		/**
 		 * オブジェクトストアからindexを削除する
@@ -292,37 +292,59 @@
 		},
 		/**
 		 * DBに保存されているデータをモデルオブジェクトに読み込む
-		 * @param {Any} 読み込みたいオブジェクト、または配列
+		 * @param {Object|Array} 読み込みたいオブジェクト、または配列
 		 */
-		get: function(object, success, error, complete){
-			if(Array.isArray(object)){
-				this._getAll(object, success, error, complete);
-			}else{
-				this._get(object, success, error, complete);
-			}
-		},
-		_getAll: function(object, success, error, complete){
-			var ObjectStoreList = [];
-			for(var i=0; i<object.length; i++){
-				var model = object[i][prefix+'model'];
-				if(objectStoreList.indexOf(model.name) == -1){
-					objectStoreList.push(model.name);
+		get: function(object, success, error){
+			object = this._toArray(object);
+			var objectStoreList = this._getObjectStoreList(object);
+			var tx = this.execTransaction(objectStoreList, false, function(tx){
+				for(var i=0; i<object.length; i++){
+					var model = object[i][this.prefix+'model'];
+					var objectStore = tx.objectStore(model.name);
+					var req = objectStore.get(model[i][[model.keyProperty]]);
+					req.onsuccess = function(e){
+						if(this.result){
+							object[i][this.prefix+'import'](this.result);
+						}
+					};
 				}
-			}
+			}, success, error);
+		},
+		getByIndex: function(object, property, success, error){
+			object = this._toArray(object);
+			var objectStoreList = this._getObjectStoreList(object);
 			var tx = this.execTransaction(objectStoreList, false, function(tx){
-				
-			});
+				for(var i=0; i<object.length; i++){
+					var model = object[i][this.prefix+'model'];
+					var objectStore = tx.objectStore(model.name);
+					var req = objectStore.index(property).get(model[i][[property]]);
+					req.onsuccess = function(e){
+						if(this.result){
+							object[i][this.prefix+'import'](this.result);
+						}
+					};
+				}
+			}, success, error);
 		},
-		_get: function(object, success, error, complete){
-			var model = object[prefix+'model'],
-				objectStoreList = [model.name]
-			var tx = this.execTransaction(objectStoreList, false, function(tx){
-			});
+		/**
+		 * モデルオブジェクトのデータをDBに保存する
+		 * @param {Object|Array} 保存したいオブジェクト、または配列
+		 */
+		put: function(object, success, error){
+			object = this._toArray(object);
+			var objectStoreList = this._getObjectStoreList(object);
+			var tx = this.execTransaction(objectStoreList, true, function(tx){
+				for(var i=0; i<object.length; i++){
+					var model = object[i][this.prefix+'model'];
+					var objectStore = tx.objectStore(model.name);
+					var dataObject = object[i][this.prefix+'export']();
+					var req = objectStore.put(dataObject);
+					req.onsuccess = function(){
+						object[i][model.keyProperty] = this.result;
+					}
+				}
+			}, success, error);
 		},
-		
-		put: function(object, success, error, complete){
-		},
-		
 		/**
 		 * データベースを削除する
 		 * @param {Function} callback 削除完了後に実行するコールバック関数
@@ -360,6 +382,19 @@
     				}
     			);
     		}
+		},
+		_toArray: function(object){
+			return (Array.isArray(object))? object : [object] ;
+		},
+		_getObjectStoreList: function(object){
+			var objectStoreList = [];
+			for(var i=0; i<object.length; i++){
+				var model = object[i][this.prefix+'model'];
+				if(objectStoreList.indexOf(model.name) == -1){
+					objectStoreList.push(model.name);
+				}
+			}
+			return objectStoreList;
 		}
 	};
 	
@@ -378,18 +413,20 @@
 	var JaidModel = function(name, cls, properties, optionalParameters){
 		this.name = optionalParameters.name;
 		this.cls = optionalParameters.cls;
-		this.keyProperty = (optionalParameters.keyProperty !== undefined)? optionalParameters.keyProperty : 'id';
 		this.autoIncrement = !!optionalParameters.autoIncrement || false;
 		this.versionHistory = optionalParameters.versionHistory;
 		this.properties = properties || [];
-		//キープロパティが保存対象に含まれていればin-lineキー、なければout-of-lineキーとなる。
-		this._keyPath = null;
+		//キーとなるプロパティを探す(out-of-lineキーには対応しない)
+		this.keyPropery;
 		for(var i=0; i<this.properties.length; i++){
-			if(this.properties[i].name == this.keyProperty){
-				this._keyPath = this.keyProperty;
+			if(this.properties[i].key){
+				this.keyProperty = this.properties[i].name;
 				break;
 			};
 		};
+		if(!keyProperty){
+			throw new Error('Key property not found.');
+		}
 	};
 	JaidModel.prototype = {
 		_init: function(prefix){
@@ -408,7 +445,7 @@
 				dataObj = dataObj || {};
 				for(var i=0; i<model.properties.length; i++){
 					var property = model.properties[i];
-					if(this[property.name] || property.name != model._keyPath){
+					if(this[property.name] || property.name != model.keyProperty){
 						dataObj[property.name] = property.onsave? property.onsave(this[property.name]): this[property.name];
 					};
 				};

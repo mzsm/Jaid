@@ -22,11 +22,10 @@ var jaid = new Jaid(
 				'todo',
 				Todo,
 				[
-					new JaidProperty('id'),
-					new JaidProperty('hoge', {index:'hogeIndex'})
+					new JaidProperty('id', {key:true}),
+					new JaidProperty('hoge', {index:true})
 				],
 				{
-					keyProperty: 'id',
 				}
 			)
 		],
