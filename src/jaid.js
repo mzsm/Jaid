@@ -309,6 +309,8 @@
 							obj[self._modelPrefix+'import'](this.result);
 						}
 					};
+				}, function(){
+					tx.abort();
 				});
 			}, success, error);
 		},
@@ -326,6 +328,8 @@
 							obj[self._modelPrefix+'import'](this.result);
 						}
 					};
+				}, function(){
+					tx.abort();
 				});
 			}, success, error);
 		},
@@ -346,6 +350,8 @@
 					req.onsuccess = function(){
 						obj[model.keyProperty] = this.result;
 					}
+				}, function(){
+					tx.abort();
 				});
 			}, success, error);
 		},
