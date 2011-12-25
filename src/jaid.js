@@ -303,7 +303,7 @@
 				object.forEach(function(obj){
 					var model = obj[self._modelPrefix+'model'];
 					var objectStore = tx.objectStore(model.name);
-					var req = objectStore.get(model[i][[model.keyProperty]]);
+					var req = objectStore.get(obj[model.keyProperty]);
 					req.onsuccess = function(e){
 						if(this.result){
 							obj[self._modelPrefix+'import'](this.result);
@@ -322,7 +322,7 @@
 				object.forEach(function(obj){
 					var model = obj[self._modelPrefix+'model'];
 					var objectStore = tx.objectStore(model.name);
-					var req = objectStore.index(property).get(model[i][[property]]);
+					var req = objectStore.index(property).get(obj[property]);
 					req.onsuccess = function(e){
 						if(this.result){
 							obj[self._modelPrefix+'import'](this.result);
@@ -366,13 +366,11 @@
 			}
     		if('deleteDatabase' in this.indexedDB){
     			//deleteDatabaseが定義されている場合は実行
-    			//eg. Firefox Aurora 10.0a2, Firefox Nightly 11.0a1
         		this.indexedDB.deleteDatabase(this.name);
         		callback && callback();
     		}else{
     			//定義されていない場合はバージョン番号を空文字列に変更して、
     			//全てのオブジェクトストアを削除
-    			//eg. Chrome 15, Chrome 17 (canary), Firefox 8
     			var self = this;
     			this.version = '';
     			this.connect(
