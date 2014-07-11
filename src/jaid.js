@@ -23,36 +23,44 @@ var Jaid;
             this.objectStores = objectStores || this.objectStores;
         }
         Database.prototype.open = function () {
+            var _this = this;
             var opener = indexedDB.open(this.name, this.version);
-            opener.onsuccess = function () {
-                this.onsuccess();
+            opener.onsuccess = function (event) {
+                var db = event.target.result;
+                var con = new Connection(db);
+                _this.onsuccess(con);
+            };
+            opener.onerror = function (event) {
+                _this.onerror(event);
             };
             opener.onupgradeneeded = function (event) {
-                /*
-                var db: IDBDatabase = event.target.result;
-                Object.keys(this.upgradeHistory).map((v) =>{return parseInt(v)}).sort().forEach((v: any) => {
-                this.upgradeHistory[v](db);
+                var db = event.target.result;
+                Object.keys(_this.upgradeHistory).map(function (v) {
+                    return parseInt(v);
+                }).sort().forEach(function (v) {
+                    _this.upgradeHistory[v](db);
                 });
-                */
-                //this.onversionchange(event);
+
+                _this.onversionchange(event);
             };
+            return this;
         };
         Database.prototype.success = function (onsuccess) {
             this.onsuccess = onsuccess;
+            return this;
         };
         Database.prototype.error = function (onerror) {
             this.onerror = onerror;
+            return this;
         };
         Database.prototype.versionchange = function (onversionchange) {
             this.onversionchange = onversionchange;
+            return this;
         };
-        Object.defineProperty(Database.prototype, "objectStoreDict", {
-            get: function () {
-                return this.objectStores;
-            },
-            enumerable: true,
-            configurable: true
-        });
+        Database.prototype.history = function (upgradeHistory) {
+            this.upgradeHistory = upgradeHistory;
+            return this;
+        };
         return Database;
     })();
     Jaid.Database = Database;
@@ -84,9 +92,6 @@ var Jaid;
             */
             return objectStore;
         };
-        ObjectStore.prototype.create = function (objectStore) {
-            return objectStore.createIndex(this.name, this.keyPath, { unique: this.unique, multiEntry: this.multiEntry });
-        };
         return ObjectStore;
     })();
     Jaid.ObjectStore = ObjectStore;
@@ -108,5 +113,30 @@ var Jaid;
         return Index;
     })();
     Jaid.Index = Index;
+
+    /**
+    * connection.
+    */
+    var Connection = (function () {
+        function Connection(db) {
+            this.db = db;
+        }
+        Connection.prototype.select = function (objectStores) {
+        };
+        Connection.prototype.save = function (objectStores) {
+        };
+        return Connection;
+    })();
+    Jaid.Connection = Connection;
+
+    /**
+    * transaction
+    */
+    var Transaction = (function () {
+        function Transaction() {
+        }
+        return Transaction;
+    })();
+    Jaid.Transaction = Transaction;
 })(Jaid || (Jaid = {}));
 //# sourceMappingURL=jaid.js.map

@@ -1,5 +1,6 @@
 /// <reference path="../src/jaid.ts" />
 
+/*
 module SampleA {
     class Foo extends Jaid.Database {
         name = 'foo';
@@ -29,23 +30,47 @@ module SampleA {
         keyPath = 'birthday';
     }
 }
+*/
 
 module SampleB {
     var database = new Jaid.Database(
-        'hoge', 10,
+        'hoge',
+        10,
         {
-            books: new Jaid.ObjectStore('books', {keyPath: 'isbn'}),
-            authors: new Jaid.ObjectStore('authors', {autoIncrement: true})
+            books: {
+                keyPath: 'isbn',
+                indexes: {
+                    published_at: {keyPath:'published_at'},
+                    author: {keyPath:'author_id', since: 3}
+                }
+            },
+            authors: {
+                autoIncrement: true,
+                indexes: {
+                    firstName: {keyPath:'firstName'},
+                    familyName: {keyPath:'familyName'},
+                    alterNames: {keyPath:'alterNames', multiEntry: true},
+                    birthday: {keyPath:'birthday', since:5}
+                },
+                since: 3
+            }
         }
-    );
-    database.upgradeHistory = {
+    ).history({
         2: function(db: IDBDatabase){
         },
         3: function(db: IDBDatabase){
         }
-    }
+    }).error(function(){
+
+    }).success(function(){
+
+    }).versionchange(function(){
+
+    }).open();
+
 }
 
+/*
 module SampleC {
     class AIObjectStore extends Jaid.ObjectStore {
         keyPath = 'id';
@@ -61,3 +86,4 @@ module SampleC {
         }
     )
 }
+*/

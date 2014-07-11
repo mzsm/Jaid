@@ -9,18 +9,23 @@
 
 module Jaid {
     export module Interfaces {
-        export interface ObjectStore {
-            keyPath: string;
-            autoIncrement: boolean;
-            indexes: Indexes;
-            since: number;
+        export interface ObjectStoreParams {
+            keyPath?: any;
+            autoIncrement?: boolean;
+            indexes?: Indexes;
+            since?: number;
         }
-
         export interface ObjectStores {
-            [key: string]: ObjectStore
+            [key: string]: ObjectStoreParams
+        }
+        export interface IndexParams {
+            keyPath: any;
+            unique?: boolean;
+            multiEntry?: boolean;
+            since?: number;
         }
         export interface Indexes {
-            [key: string]: Index
+            [key: string]: IndexParams
         }
     }
 
@@ -38,32 +43,41 @@ module Jaid {
             this.version = version || this.version;
             this.objectStores = objectStores || this.objectStores;
         }
-        open(): void{
+        open(): Database{
             var opener: IDBOpenDBRequest = indexedDB.open(this.name, this.version);
-            opener.onsuccess = function(){
-                this.onsuccess();
+            opener.onsuccess = (event: Event) => {
+                var db = <IDBDatabase>(<IDBOpenDBRequest>event.target).result;
+                var con = new Connection(db);
+                this.onsuccess(con);
+            };
+            opener.onerror = (event: Event) => {
+                this.onerror(event);
             };
             opener.onupgradeneeded = (event: IDBVersionChangeEvent) => {
-                /*
-                var db: IDBDatabase = event.target.result;
+                var db = <IDBDatabase>(<IDBOpenDBRequest>event.target).result;
                 Object.keys(this.upgradeHistory).map((v) =>{return parseInt(v)}).sort().forEach((v: any) => {
                     this.upgradeHistory[v](db);
                 });
-                */
-                //this.onversionchange(event);
+
+                this.onversionchange(event);
             };
+            return this;
         }
-        success(onsuccess: Function){
+        success(onsuccess: Function): Database{
             this.onsuccess = onsuccess;
+            return this;
         }
-        error(onerror: Function){
+        error(onerror: Function): Database{
             this.onerror = onerror;
+            return this;
         }
-        versionchange(onversionchange: Function){
+        versionchange(onversionchange: Function): Database{
             this.onversionchange = onversionchange;
+            return this;
         }
-        get objectStoreDict(){
-            return this.objectStores;
+        history(upgradeHistory: {[version: number]: Function}): Database{
+            this.upgradeHistory = upgradeHistory;
+            return this;
         }
     }
 
@@ -96,9 +110,9 @@ module Jaid {
             */
             return objectStore;
         }
-        create(objectStore: IDBObjectStore): IDBIndex{
-            return objectStore.createIndex(this.name, this.keyPath, {unique: this.unique, multiEntry:this.multiEntry});
-        }
+//        createIndex(name: string, keyPath: any, unique: boolean = false, multiEntry: boolean = false): IDBIndex{
+//            return objectStore.createIndex(this.name, this.keyPath, {unique: this.unique, multiEntry:this.multiEntry});
+//        }
     }
 
     /**
@@ -118,6 +132,34 @@ module Jaid {
         }
         create(objectStore: IDBObjectStore): IDBIndex{
             return objectStore.createIndex(this.name, this.keyPath, {unique: this.unique, multiEntry:this.multiEntry});
+        }
+    }
+
+    /**
+     * connection.
+     */
+    export class Connection {
+        db: IDBDatabase;
+
+        constructor(db: IDBDatabase) {
+            this.db = db;
+        }
+
+        select(objectStores: any) {
+
+        }
+        save(objectStores: any) {
+
+        }
+    }
+
+    /**
+     * transaction
+     */
+    export class Transaction {
+
+        constructor(){
+
         }
     }
 }
