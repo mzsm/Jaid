@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title>IndexedDB sample - simple memo pad</title>
+    <link rel="stylesheet" type="text/css" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+    <style>
+        .loading-icon {
+            display: inline-block;
+            -webkit-animation: spin 0.5s linear infinite;
+            -moz-animation: spin 0.5s linear infinite;
+            animation: spin 0.5s linear infinite;
+        }
+        @-webkit-keyframes spin {
+            0% {-webkit-transform: rotate(0deg);}
+            100% {-webkit-transform: rotate(360deg);}
+        }
+        @-moz-keyframes spin {
+            0% {-moz-transform: rotate(0deg);}
+            100% {-moz-transform: rotate(360deg);}
+        }
+        @keyframes spin {
+            0% {transform: rotate(0deg);}
+            100% {transform: rotate(360deg);}
+        }
+    </style>
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+    <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
+    <script src="../../src/jaid.js"></script>
+    <script src="./memopad.js"></script>
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar navbar-default" role="navigation">
+            <div class="container-fluid">
+                <div class="navbar-header">
+                    <a class="navbar-brand" href="#">Simple memo pad</a>
+                </div>
+            </div>
+        </nav>
+        <div class="row">
+            <div class="col-xs-4">
+                <div class="panel panel-default">
+                    <div class="panel-heading"><h3 class="panel-title">Memo list</h3></div>
+                    <div class="panel-body"></div>
+                </div>
+            </div>
+            <div class="col-xs-8">
+                <form class="form" id="inputForm">
+                    <input type="hidden" name="memoId">
+                    <div class="form-group">
+                        <label for="title">Title</label>
+                        <input type="text" id="title" name="title" class="form-control input-lg">
+                    </div>
+                    <div class="form-group">
+                        <label for="body">Body</label>
+                        <textarea id="body" name="body" class="form-control" cols="100" rows="10"></textarea>
+                    </div>
+                    <hr>
+                    <div class="form-group">
+                        <label for="tags">Tags</label>
+                        <input type="text" id="tags" name="tags" class="form-control">
+                        <p class="help-block">&quot;,&quot;(comma) or &quot; &quot;(space) separated.</p>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal" tabindex="-1" id="modal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-body" id="modalBody">
+                    <span class="glyphicon glyphicon-refresh loading-icon"></span>
+                    Loading...
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
