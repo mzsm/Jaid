@@ -10,8 +10,9 @@
 var Jaid;
 (function (Jaid) {
     var Database = (function () {
-        function Database(name, version, objectStores) {
-            this.objectStores = {};
+        function Database(param, version, objectStores) {
+            this.version = 1;
+            this.objectStores = [];
             this.onsuccess = function () {
             };
             this.onerror = function () {
@@ -19,9 +20,15 @@ var Jaid;
             this.onversionchange = function (event) {
             };
             this.upgradeHistory = {};
-            this.name = name || this.name;
-            this.version = version || this.version;
-            this.objectStores = objectStores || this.objectStores;
+            if (typeof param === 'string') {
+                this.name = param;
+                this.version = version || this.version;
+                this.objectStores = objectStores || this.objectStores;
+            } else if (typeof param === 'Object' && !!param) {
+                this.name = param.name || this.name;
+                this.version = param.version || this.version;
+                this.objectStores = param.objectStores || this.objectStores;
+            }
         }
         Database.prototype.open = function () {
             var _this = this;
@@ -43,7 +50,7 @@ var Jaid;
                 if (event.oldVersion == 0) {
                     Object.keys(_this.objectStores).forEach(function (name) {
                         var params = _this.objectStores[name];
-                        _this._createObjectStore(db, name, params);
+                        _this._createObjectStore(db, params);
                     });
                 } else {
                     //migration
@@ -76,13 +83,13 @@ var Jaid;
                     }, versions).sort().forEach(function (version) {
                         if (version in objectStoreChanges) {
                             objectStoreChanges[version].forEach(function (val) {
-                                _this._createObjectStore(db, val[0], val[1]);
+                                _this._createObjectStore(db, val, true);
                             });
                         }
                         if (version in indexChanges) {
                             indexChanges[version].forEach(function (val) {
                                 var objectStore = transaction.objectStore(val[0]);
-                                _this._createIndex(objectStore, val[1], val[2]);
+                                _this._createIndex(objectStore, val);
                             });
                         }
                         if (version in _this.upgradeHistory) {
@@ -113,20 +120,18 @@ var Jaid;
             this.upgradeHistory = upgradeHistory;
             return this;
         };
-        Database.prototype._createObjectStore = function (db, name, params, withIndex) {
-            var _this = this;
+        Database.prototype._createObjectStore = function (db, objectStore, withIndex) {
             if (typeof withIndex === "undefined") { withIndex = true; }
-            var objectStore = db.createObjectStore(name, { keyPath: params.keyPath, autoIncrement: params.autoIncrement });
-            if (withIndex) {
-                Object.keys(params.indexes).forEach(function (indexName) {
-                    var indexParams = params.indexes[indexName];
-                    _this._createIndex(objectStore, indexName, indexParams);
-                });
+            if (!(objectStore instanceof ObjectStore)) {
+                objectStore = new ObjectStore(objectStore);
             }
-            return objectStore;
+            return objectStore.create(db, withIndex);
         };
-        Database.prototype._createIndex = function (objectStore, name, params) {
-            return objectStore.createIndex(name, params.keyPath, { unique: params.unique, multiEntry: params.multiEntry });
+        Database.prototype._createIndex = function (objectStore, index) {
+            if (!(index instanceof Index)) {
+                index = new Index(index);
+            }
+            return index.create(objectStore);
         };
         return Database;
     })();
@@ -136,27 +141,32 @@ var Jaid;
     * object store.
     */
     var ObjectStore = (function () {
-        function ObjectStore(name, options, indexes) {
+        function ObjectStore(params) {
             this.autoIncrement = false;
-            this.indexes = {};
-            this.name = name || this.name;
-            this.keyPath = options.keyPath || this.keyPath;
-            if (typeof options.autoIncrement !== "undefined") {
-                this.autoIncrement = options.autoIncrement;
+            this.indexes = [];
+            this.name = params.name || this.name;
+            this.keyPath = params.keyPath || this.keyPath;
+            if (typeof params.autoIncrement !== "undefined") {
+                this.autoIncrement = params.autoIncrement;
             }
-            if (typeof indexes !== "undefined") {
-                this.indexes = indexes;
+            if (typeof params.indexes !== "undefined") {
+                this.indexes = params.indexes;
             }
+            this.since = params.since || this.since;
         }
-        ObjectStore.prototype.create = function (db) {
+        ObjectStore.prototype.create = function (db, withIndex) {
+            if (typeof withIndex === "undefined") { withIndex = true; }
             var objectStore = db.createObjectStore(this.name, { keyPath: this.keyPath, autoIncrement: this.autoIncrement });
 
             //create indexes.
-            /*
-            this.indexes.forEach(function(index){
-            index.create(objectStore);
-            });
-            */
+            if (withIndex) {
+                this.indexes.forEach(function (index) {
+                    if (!(index instanceof Index)) {
+                        index = new Index(index);
+                    }
+                    index.create(objectStore);
+                });
+            }
             return objectStore;
         };
         return ObjectStore;
@@ -167,12 +177,18 @@ var Jaid;
     * index.
     */
     var Index = (function () {
-        function Index(name, keyPath, options) {
+        function Index(params) {
             this.unique = false;
             this.multiEntry = false;
             this.since = 0;
-            this.name = name || this.name;
-            this.keyPath = keyPath || this.keyPath;
+            this.name = params.name || this.name;
+            this.keyPath = params.keyPath || this.keyPath;
+            if (typeof params.unique !== "undefined") {
+                this.unique = params.unique;
+            }
+            if (typeof params.unique !== "undefined") {
+                this.multiEntry = params.multiEntry;
+            }
         }
         Index.prototype.create = function (objectStore) {
             return objectStore.createIndex(this.name, this.keyPath, { unique: this.unique, multiEntry: this.multiEntry });

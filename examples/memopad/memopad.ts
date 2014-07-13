@@ -1,7 +1,7 @@
 /// <reference path="../../src/jaid.ts" />
 /// <reference path="../../d.ts/jquery/jquery.d.ts" />
 /// <reference path="../../d.ts/bootstrap/bootstrap.d.ts" />
-//indexedDB.deleteDatabase('memopad');
+indexedDB.deleteDatabase('memopad');
 
 interface MemoData {
     title?: string;
@@ -10,47 +10,22 @@ interface MemoData {
 }
 
 //IndexedDBの構造を定義
-var db = new Jaid.Database(
-    'memopad', 2,
-    {
-        //オブジェクトストア
-        memo : {
+var db = new Jaid.Database({
+    name: 'memopad',
+    version: 1,
+    objectStores: [
+        {
+            name: 'memo',
             autoIncrement: true,
-            //インデックス
-            indexes: {
-                tags: {
-                    keyPath: 'tags',
-                    multiEntry: true
-                },
-                createdAt: {
-                    keyPath: 'createdAt',
-                    since: 2
-                },
-                modifiedAt: {
-                    keyPath: 'modifiedAt',
-                    since: 2
-                }
-            }
-        },
-        test : {
-            autoIncrement: true,
-            //インデックス
-            indexes: {
-                tags: {
-                    keyPath: 'tags',
-                    multiEntry: true
-                },
-                 createdAt: {
-                     keyPath: 'createdAt'
-                 },
-                 modifiedAt: {
-                     keyPath: 'modifiedAt'
-                 }
-            },
-            since: 2
+            indexes: [
+                {name: 'tags', keyPath: 'tags', multiEntry: true},
+                {name: 'createdAt', keyPath: 'createdAt', since: 2},
+                {name: 'modifiedAt', keyPath: 'modifiedAt', since: 2}
+            ]
         }
-    }
-);
+    ]
+});
+
 var dbcon: Jaid.Connection;
 
 $(document).ready(function(){
