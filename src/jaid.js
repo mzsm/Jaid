@@ -48,54 +48,80 @@ var Jaid;
                 var db = req.result;
 
                 if (event.oldVersion == 0) {
-                    Object.keys(_this.objectStores).forEach(function (name) {
-                        var params = _this.objectStores[name];
-                        _this._createObjectStore(db, params);
+                    //initialize
+                    _this.objectStores.forEach(function (params) {
+                        _this._createObjectStore(db, params, event.newVersion);
                     });
                 } else {
                     //migration
-                    var objectStoreChanges = {};
-                    var indexChanges = {};
-                    Object.keys(_this.objectStores).forEach(function (name) {
-                        var params = _this.objectStores[name];
-                        if (params.since && params.since > event.oldVersion) {
-                            if (!(params.since in objectStoreChanges)) {
-                                objectStoreChanges[params.since] = [];
+                    var createdObjectStores = {};
+                    var droppedObjectStores = {};
+                    var createdIndexes = {};
+                    var droppedIndexes = {};
+                    _this.objectStores.forEach(function (params) {
+                        if (params.created > event.oldVersion) {
+                            if (!(params.created in createdObjectStores)) {
+                                createdObjectStores[params.created] = [];
                             }
-                            objectStoreChanges[params.since].push([name, params]);
-                        } else {
-                            Object.keys(params.indexes || {}).forEach(function (n) {
-                                var p = params.indexes[n];
-                                if (p.since && p.since > event.oldVersion) {
-                                    if (!(p.since in indexChanges)) {
-                                        indexChanges[p.since] = [];
-                                    }
-                                    indexChanges[p.since].push([name, n, p]);
-                                }
-                            });
+                            createdObjectStores[params.created].push(params);
                         }
+                        if (params.dropped && params.dropped > event.oldVersion) {
+                            if (!(params.dropped in droppedObjectStores)) {
+                                droppedObjectStores[params.dropped] = [];
+                            }
+                            droppedObjectStores[params.dropped].push(params);
+                        }
+                        params.indexes.forEach(function (p) {
+                            if (p.created && p.created > event.oldVersion && (!params.created || p.created > params.created)) {
+                                if (!(p.created in createdIndexes)) {
+                                    createdIndexes[p.created] = [];
+                                }
+                                createdIndexes[p.created].push({ storeName: params.name, index: p });
+                            }
+                            if (p.dropped && p.dropped > event.oldVersion && (!params.dropped || p.dropped < params.dropped)) {
+                                if (!(p.dropped in droppedIndexes)) {
+                                    droppedIndexes[p.dropped] = [];
+                                }
+                                droppedIndexes[p.created].push({ storeName: params.name, index: p });
+                            }
+                        });
                     });
-                    var versions = Object.keys(objectStoreChanges).concat(Object.keys(indexChanges)).concat(Object.keys(_this.upgradeHistory)).map(function (v) {
+                    var versions = Object.keys(createdObjectStores).concat(Object.keys(createdIndexes)).concat(Object.keys(_this.upgradeHistory)).map(function (v) {
                         return parseInt(v);
                     });
                     versions.filter(function (v, i) {
                         return (v > event.oldVersion && this.indexOf(v) == i);
                     }, versions).sort().forEach(function (version) {
-                        if (version in objectStoreChanges) {
-                            objectStoreChanges[version].forEach(function (val) {
-                                _this._createObjectStore(db, val, true);
+                        // Add new objectStore and Index.
+                        if (version in createdObjectStores) {
+                            createdObjectStores[version].forEach(function (val) {
+                                _this._createObjectStore(db, val, version);
                             });
                         }
-                        if (version in indexChanges) {
-                            indexChanges[version].forEach(function (val) {
-                                var objectStore = transaction.objectStore(val[0]);
-                                _this._createIndex(objectStore, val);
+                        if (version in createdIndexes) {
+                            createdIndexes[version].forEach(function (val) {
+                                var objectStore = transaction.objectStore(val.storeName);
+                                _this._createIndex(objectStore, val.index);
                             });
                         }
+
+                        // Custom operation
                         if (version in _this.upgradeHistory) {
                             _this.upgradeHistory[version](req);
                         }
-                        //TODO: remove objectStore and index.
+
+                        // Remove deprecated objectStore and Index.
+                        if (version in droppedObjectStores) {
+                            droppedObjectStores[version].forEach(function (val) {
+                                _this._createObjectStore(db, val, version);
+                            });
+                        }
+                        if (version in createdIndexes) {
+                            createdIndexes[version].forEach(function (val) {
+                                var objectStore = transaction.objectStore(val.storeName);
+                                _this._createIndex(objectStore, val.index);
+                            });
+                        }
                     });
                 }
                 if (_this.onversionchange) {
@@ -120,12 +146,11 @@ var Jaid;
             this.upgradeHistory = upgradeHistory;
             return this;
         };
-        Database.prototype._createObjectStore = function (db, objectStore, withIndex) {
-            if (typeof withIndex === "undefined") { withIndex = true; }
+        Database.prototype._createObjectStore = function (db, objectStore, indexVersion) {
             if (!(objectStore instanceof ObjectStore)) {
                 objectStore = new ObjectStore(objectStore);
             }
-            return objectStore.create(db, withIndex);
+            return objectStore.create(db, indexVersion);
         };
         Database.prototype._createIndex = function (objectStore, index) {
             if (!(index instanceof Index)) {
@@ -144,6 +169,7 @@ var Jaid;
         function ObjectStore(params) {
             this.autoIncrement = false;
             this.indexes = [];
+            this.created = 0;
             this.name = params.name || this.name;
             this.keyPath = params.keyPath || this.keyPath;
             if (typeof params.autoIncrement !== "undefined") {
@@ -152,15 +178,19 @@ var Jaid;
             if (typeof params.indexes !== "undefined") {
                 this.indexes = params.indexes;
             }
-            this.since = params.since || this.since;
+            this.created = params.created || this.created;
         }
-        ObjectStore.prototype.create = function (db, withIndex) {
-            if (typeof withIndex === "undefined") { withIndex = true; }
+        ObjectStore.prototype.create = function (db, indexVersion) {
             var objectStore = db.createObjectStore(this.name, { keyPath: this.keyPath, autoIncrement: this.autoIncrement });
 
             //create indexes.
-            if (withIndex) {
+            if (typeof indexVersion === 'number') {
                 this.indexes.forEach(function (index) {
+                    // オブジェクトストアを作成したバージョンの時点ではまだ存在しなかった、
+                    // またはすでに削除されていたインデックスは作成しない
+                    if ((index.created && index.created > indexVersion) || (index.dropped && index.dropped <= indexVersion)) {
+                        return;
+                    }
                     if (!(index instanceof Index)) {
                         index = new Index(index);
                     }
@@ -168,6 +198,9 @@ var Jaid;
                 });
             }
             return objectStore;
+        };
+        ObjectStore.prototype.drop = function (db) {
+            db.deleteObjectStore(this.name);
         };
         return ObjectStore;
     })();
@@ -180,7 +213,7 @@ var Jaid;
         function Index(params) {
             this.unique = false;
             this.multiEntry = false;
-            this.since = 0;
+            this.created = 0;
             this.name = params.name || this.name;
             this.keyPath = params.keyPath || this.keyPath;
             if (typeof params.unique !== "undefined") {
@@ -192,6 +225,9 @@ var Jaid;
         }
         Index.prototype.create = function (objectStore) {
             return objectStore.createIndex(this.name, this.keyPath, { unique: this.unique, multiEntry: this.multiEntry });
+        };
+        Index.prototype.drop = function (objectStore) {
+            objectStore.deleteIndex(this.name);
         };
         return Index;
     })();

@@ -17,7 +17,8 @@ module Jaid {
         keyPath: any;
         unique?: boolean;
         multiEntry?: boolean;
-        since?: number;
+        created?: number;
+        dropped?: number;
     }
 
     export interface ObjectStoreParams {
@@ -25,11 +26,12 @@ module Jaid {
         keyPath?: any;
         autoIncrement?: boolean;
         indexes?: IndexParams[];
-        since?: number;
+        created?: number;
+        dropped?: number;
     }
 
     export interface DatabaseParams {
-        name?; string;
+        name?: string;
         version?: number;
         objectStores?: ObjectStoreParams[];
     }
@@ -49,7 +51,7 @@ module Jaid {
         connection: Connection;
 
         constructor(name?: string, version?: number, objectStores?: ObjectStoreParams[]);
-        constructor(param?: Object);
+        constructor(param?: DatabaseParams);
         constructor(param?: any, version?: number, objectStores?: ObjectStoreParams[]){
             if(typeof param === 'string'){
                 this.name = param;
@@ -78,54 +80,79 @@ module Jaid {
                 var db = <IDBDatabase>req.result;
 
                 if(event.oldVersion == 0){
-                    Object.keys(this.objectStores).forEach((name: string) => {
-                        var params: ObjectStoreParams = this.objectStores[name];
-                        this._createObjectStore(db, params);
+                    //initialize
+                    this.objectStores.forEach((params: ObjectStoreParams) => {
+                        this._createObjectStore(db, params, event.newVersion);
                     });
                 }else{
                     //migration
-                    var objectStoreChanges: any = {};
-                    var indexChanges: any = {};
-                    Object.keys(this.objectStores).forEach((name: string) => {
-                        var params: ObjectStoreParams = this.objectStores[name];
-                        if(params.since && params.since > event.oldVersion) {
-                            if (!(params.since in objectStoreChanges)) {
-                                objectStoreChanges[params.since] = [];
+                    var createdObjectStores: {[ver: number]: ObjectStoreParams[]} = {};
+                    var droppedObjectStores: {[ver: number]: ObjectStoreParams[]} = {};
+                    var createdIndexes: {[ver: number]: {storeName: string; index: IndexParams}[]} = {};
+                    var droppedIndexes: {[ver: number]: {storeName: string; index: IndexParams}[]} = {};
+                    this.objectStores.forEach((params: ObjectStoreParams) => {
+                        if(params.created > event.oldVersion) {
+                            if (!(params.created in createdObjectStores)) {
+                                createdObjectStores[params.created] = [];
                             }
-                            objectStoreChanges[params.since].push([name, params]);
-                        }else{
-                            Object.keys(params.indexes || {}).forEach((n: string) => {
-                                var p: IndexParams = params.indexes[n];
-                                if(p.since && p.since > event.oldVersion){
-                                    if (!(p.since in indexChanges)) {
-                                        indexChanges[p.since] = [];
-                                    }
-                                    indexChanges[p.since].push([name, n, p]);
-                                }
-                            });
+                            createdObjectStores[params.created].push(params);
                         }
+                        if(params.dropped && params.dropped > event.oldVersion){
+                            if (!(params.dropped in droppedObjectStores)) {
+                                droppedObjectStores[params.dropped] = [];
+                            }
+                            droppedObjectStores[params.dropped].push(params);
+                        }
+                        params.indexes.forEach((p: IndexParams) => {
+                            if(p.created && p.created > event.oldVersion && (!params.created || p.created > params.created)) {
+                                if (!(p.created in createdIndexes)) {
+                                    createdIndexes[p.created] = [];
+                                }
+                                createdIndexes[p.created].push({storeName: params.name, index: p});
+                            }
+                            if(p.dropped && p.dropped > event.oldVersion && (!params.dropped || p.dropped < params.dropped)) {
+                                if (!(p.dropped in droppedIndexes)) {
+                                    droppedIndexes[p.dropped] = [];
+                                }
+                                droppedIndexes[p.created].push({storeName: params.name, index: p});
+                            }
+                        });
                     });
-                    var versions: number[] = Object.keys(objectStoreChanges)
-                        .concat(Object.keys(indexChanges))
+                    var versions: number[] = Object.keys(createdObjectStores)
+                        .concat(Object.keys(createdIndexes))
                         .concat(Object.keys(this.upgradeHistory)).map((v) => {return parseInt(v)});
                     versions.filter(function(v, i){ return(v > event.oldVersion && this.indexOf(v) == i); }, versions)
                         .sort()
                         .forEach((version: number) => {
-                            if(version in objectStoreChanges){
-                                objectStoreChanges[version].forEach((val: ObjectStoreParams) => {
-                                    this._createObjectStore(db, val, true);
+                            // Add new objectStore and Index.
+                            if(version in createdObjectStores){
+                                createdObjectStores[version].forEach((val: ObjectStoreParams) => {
+                                    this._createObjectStore(db, val, version);
                                 });
                             }
-                            if(version in indexChanges){
-                                indexChanges[version].forEach((val: IndexParams) => {
-                                    var objectStore = transaction.objectStore(val[0]);
-                                    this._createIndex(objectStore, val);
+                            if(version in createdIndexes){
+                                createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
+                                    var objectStore = transaction.objectStore(val.storeName);
+                                    this._createIndex(objectStore, val.index);
                                 });
                             }
+                            // Custom operation
                             if(version in this.upgradeHistory){
                                 this.upgradeHistory[version](req);
                             }
-                            //TODO: remove objectStore and index.
+
+                            // Remove deprecated objectStore and Index.
+                            if(version in droppedObjectStores){
+                                droppedObjectStores[version].forEach((val: ObjectStoreParams) => {
+                                    this._createObjectStore(db, val, version);
+                                });
+                            }
+                            if(version in createdIndexes){
+                                createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
+                                    var objectStore = transaction.objectStore(val.storeName);
+                                    this._createIndex(objectStore, val.index);
+                                });
+                            }
                         });
                 }
                 if(this.onversionchange){
@@ -150,11 +177,11 @@ module Jaid {
             this.upgradeHistory = upgradeHistory;
             return this;
         }
-        private _createObjectStore(db: IDBDatabase, objectStore: ObjectStoreParams, withIndex = true): IDBObjectStore{
+        private _createObjectStore(db: IDBDatabase, objectStore: ObjectStoreParams, indexVersion?: number): IDBObjectStore{
             if(!(objectStore instanceof ObjectStore)){
                 objectStore = new ObjectStore(objectStore);
             }
-            return (<ObjectStore>objectStore).create(db, withIndex);
+            return (<ObjectStore>objectStore).create(db, indexVersion);
         }
         private _createIndex(objectStore: IDBObjectStore, index: IndexParams): IDBIndex{
             if(!(index instanceof Index)){
@@ -172,7 +199,7 @@ module Jaid {
         keyPath: string;
         autoIncrement: boolean = false;
         indexes: IndexParams[] = [];
-        since: number;
+        created: number = 0;
 
         constructor(params: ObjectStoreParams){
             this.name = params.name || this.name;
@@ -183,13 +210,19 @@ module Jaid {
             if(typeof params.indexes !== "undefined"){
                 this.indexes = params.indexes;
             }
-            this.since = params.since || this.since;
+            this.created = params.created || this.created;
         }
-        create(db: IDBDatabase, withIndex:boolean = true): IDBObjectStore{
+        create(db: IDBDatabase, indexVersion?:number): IDBObjectStore{
             var objectStore: IDBObjectStore = db.createObjectStore(this.name, {keyPath: this.keyPath, autoIncrement: this.autoIncrement});
             //create indexes.
-            if(withIndex){
+            if(typeof indexVersion === 'number'){
                 this.indexes.forEach(function(index: IndexParams){
+                    // オブジェクトストアを作成したバージョンの時点ではまだ存在しなかった、
+                    // またはすでに削除されていたインデックスは作成しない
+                    if((index.created && index.created > indexVersion) ||
+                       (index.dropped && index.dropped <= indexVersion)){
+                        return;
+                    }
                     if(!(index instanceof Index)){
                         index = new Index(index);
                     }
@@ -198,9 +231,9 @@ module Jaid {
             }
             return objectStore;
         }
-//        createIndex(name: string, keyPath: any, unique: boolean = false, multiEntry: boolean = false): IDBIndex{
-//            return objectStore.createIndex(this.name, this.keyPath, {unique: this.unique, multiEntry:this.multiEntry});
-//        }
+        drop(db: IDBDatabase): void{
+            db.deleteObjectStore(this.name);
+        }
     }
 
     /**
@@ -211,7 +244,8 @@ module Jaid {
         keyPath: any;
         unique = false;
         multiEntry = false;
-        since: number = 0;
+        created: number = 0;
+        removed: number;
 
         constructor(params: IndexParams){
             this.name = params.name || this.name;
@@ -225,6 +259,9 @@ module Jaid {
         }
         create(objectStore: IDBObjectStore): IDBIndex{
             return objectStore.createIndex(this.name, this.keyPath, {unique: this.unique, multiEntry:this.multiEntry});
+        }
+        drop(objectStore: IDBObjectStore): void{
+            objectStore.deleteIndex(this.name);
         }
     }
 
