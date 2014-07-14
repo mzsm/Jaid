@@ -7,13 +7,41 @@
     <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
     <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
     <script src="../../src/jaid.js"></script>
-    <script src="./memopad.js"></script>
+    <script src="./upgrade.js"></script>
 </head>
 <body>
 <div class="container">
+    <h1>Migration test</h1>
     <div class="row">
-        <div class="col-xs-3">
+        <div class="col-xs-6">
+            <form class="setVersionForm form form-inline">
+                <select name="versions" id="versions" class="form-control"></select>
+                <button class="btn btn-primary">Open as this version</button>
+                <pre><code id="schemaPreview"></code></pre>
+                <pre><code id="historyPreview"></code></pre>
+                <pre><code id="oninitializedPreview"></code></pre>
+            </form>
+        </div>
+        <div class="col-xs-6">
+            <div id="alerts"></div>
+            <div class="panel panel-default">
+                <div class="panel-heading">Version</div>
+                <div class="panel-body" id="dbVersion"></div>
+            </div>
+            <div class="panel panel-default">
+                <div class="panel-heading">Object Store and Index</div>
+                <div class="panel-body">
+                    <ul id="showSchema"></ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row">
 
+        <div class="col-xs-3">
+            <form class="deleteDBForm form form-inline">
+                <button class="btn">Delete DB</button>
+            </form>
         </div>
     </div>
 </div>

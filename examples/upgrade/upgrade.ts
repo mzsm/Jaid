@@ -1,70 +1,144 @@
 /// <reference path="../../src/jaid.ts" />
 /// <reference path="../../d.ts/jquery/jquery.d.ts" />
 /// <reference path="../../d.ts/bootstrap/bootstrap.d.ts" />
+"use strict";
 
-interface MemoData {
-    title?: string;
-    body?: string;
-    tags?: string[];
+interface Schema {
+    schema: Jaid.ObjectStoreParams[];
+    history?: Jaid.MigrationHistory;
+}
+interface SchemaTable {
+    [version: number]: Schema;
 }
 
-var schemaTable = {
+var upgradeHistoryFunc1 = function(transaction: Jaid.VersionChangeTransaction){
+    $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver 1.'));
+    transaction.put('store1', {message: 'set version1', updated: new Date()});
+};
+var upgradeHistoryFunc2 = function(transaction: Jaid.VersionChangeTransaction){
+    $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver 2.'));
+    transaction.put('store1', {message: 'set version2', updated: new Date()});
+};
+var upgradeHistoryFunc3000 = function(transaction: Jaid.VersionChangeTransaction){
+    $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver 3000.'));
+    transaction.put('store1', {message: 'set version3', updated: new Date()});
+};
+
+var schemaTable: SchemaTable = {
     1: {
-        store1 : {
-            autoIncrement: true,
-            indexes: {
-                index1_1: {keyPath: 'foo'}
+        schema: [
+            {
+                name: 'store1',
+                autoIncrement: true,
+                indexes: [
+                    {name: 'index1_1', keyPath: 'foo'}
+                ]
             }
+        ],
+        history: {
+            1: upgradeHistoryFunc1
         }
     },
     2: {
-        store1 : {
-            autoIncrement: true,
-            indexes: {
-                index1_1: {keyPath: 'foo'},
-                index1_2: {keyPath: 'bar', since: 2}
-            }
-        },
-        store2 : {
-            autoIncrement: true,
-            indexes: {
-                index2_1: {keyPath: 'egg'},
-                index2_2: {keyPath: 'spam'}
+        schema: [
+            {
+                name: 'store1',
+                autoIncrement: true,
+                indexes: [
+                    {name: 'index1_1', keyPath: 'foo'},
+                    {name: 'index1_2', keyPath: 'bar', created: 2}
+                ]
             },
-            since: 2
+            {
+                name: 'store2',
+                autoIncrement: true,
+                indexes: [
+                    {name: 'index2_1', keyPath: 'egg'},
+                    {name: 'index2_2', keyPath: 'spam'}
+                ],
+                created: 2
+            }
+        ],
+        history: {
+            1: upgradeHistoryFunc1,
+            2: upgradeHistoryFunc2
         }
     },
     3000: {
-        store1 : {
-            autoIncrement: true,
-            indexes: {
-                index1_1: {keyPath: 'foo'},
-                index1_2: {keyPath: 'bar', since: 2},
-                index1_3: {keyPath: 'baz', since: 3000}
+        schema: [
+             {
+                name: 'store1',
+                autoIncrement: true,
+                indexes: [
+                    {name: 'index1_1', keyPath: 'foo'},
+                    {name: 'index1_2', keyPath: 'bar', created: 2, removed: 3000},
+                    {name: 'index1_3', keyPath: 'baz', created: 3000}
+                ]
+            },
+            {
+                name: 'store2',
+                autoIncrement: true,
+                indexes: [
+                    {name: 'index2_1', keyPath: 'egg', removed: 3000},
+                    {name: 'index2_2', keyPath: 'spam'},
+                    {name: 'index2_3', keyPath: 'spamspamspam', created: 3000}
+                ],
+                created: 2
+            },
+            {
+                name: 'store3',
+                autoIncrement: true,
+                indexes: [
+                    {name: 'index3_1', keyPath: 'hoge'}
+                ],
+                created: 3000
             }
-        },
-        store2 : {
-            autoIncrement: true,
-            indexes: {
-                index2_1: {keyPath: 'egg'},
-                index2_2: {keyPath: 'spam'},
-                index2_3: {keyPath: 'spamspamspam', since: 3000}
-            },
-            since: 2
-        },
-        store3 : {
-            autoIncrement: true,
-            indexes: {
-                index3_1: {keyPath: 'hoge'}
-            },
-            since: 3000
+        ],
+        history: {
+            2: upgradeHistoryFunc2,
+            3: upgradeHistoryFunc3000
         }
     }
 };
 
-function execute(version: number, schema: any) {
-    var db = new Jaid.Database('upgradeTest', version, schema)
-        .open();
+
+
+function checkVersion(db: Jaid.Database): void{
+    $('#dbVersion').text(db.version);
+
+    var $showSchema = $('#showSchema').empty();
+    var objectStoreNames = db.connection.db.objectStoreNames;
+    var OSLength = objectStoreNames.length;
+    for(var i=0; i<OSLength; i++){
+        var storeName: string = objectStoreNames[i];
+        var li = $('<li>').text(storeName);
+
+        $showSchema.append(li);
+    }
+}
+
+function execute(version: number, schema: Schema): void {
+    $('#alerts').empty();
+    var db: Jaid.Database = new Jaid.Database('upgradeTest', version, schema.schema)
+        .open()
+        .success(function(){
+            checkVersion(db);
+            db.connection.close();
+        }).error(function(err: DOMError, event: Event){
+            console.log(err);
+            var alert = $('<div class="alert alert-danger">');
+            alert.append($('<p class="lead">').text(err.name));
+            alert.append($('<p>').text(err.message));
+            $('#alerts').append(alert);
+        });
+        if (schema.history){
+            db.migration(schema.history);
+        }
+    /*
+    db.onblocked = function () {
+        $('#alerts')
+    }
+    */
 }
 
 function reset() {
@@ -72,31 +146,35 @@ function reset() {
 }
 
 $(document).ready(function(){
-    $('#inputForm').on('submit', function(event){
-        var id: number;
-        var data: MemoData = {};
-        $(this).serializeArray().forEach(function(val: {name:string; value:string}){
-            switch(val.name){
-                case 'id':
-                    id = parseInt(val.value);
-                    break;
-                case 'title':
-                    data.title = val.value;
-                    break;
-                case 'body':
-                    data.body = val.value;
-                    break;
-                case 'tags':
-                    var _tags = val.value.replace(',', ' ').split(' ');
-                    _tags.filter(function(){return (this.length > 0)});
-                    data.tags = _tags;
-            }
-        });
 
-        console.log(id, data);
-        dbcon.save('memo', data, id);
+    var $versions = $('#versions');
+    Object.keys(schemaTable).forEach((ver: string) => {
+        $versions.append($('<option>').attr('val', ver).text(ver));
+    });
+    $versions.on('change', function(){
+        var ver: number = parseInt($versions.val());
+        $('#schemaPreview').text(JSON.stringify(schemaTable[ver].schema, null, '  '));
+        var historyText: string = '';
+        if(schemaTable[ver].history){
+            historyText += '{\n'
+            Object.keys(schemaTable[ver].history).map((key: string) => {return parseInt(key)})
+                .sort().forEach(function(version: number){
+                    historyText += '  ' + version + ': ' + schemaTable[ver].history[version].toString() + ',\n';
+                });
+            historyText += '}';
+        }
+        $('#historyPreview').text(historyText);
+    }).trigger('change');
+
+    $('.setVersionForm').on('submit', function(event){
+        var ver: number = $versions.val();
+        execute(ver, schemaTable[3000]);
 
         event.preventDefault();
         return false;
+    });
+    $('.deleteDBForm').on('submit', function(){
+        reset();
+        event.preventDefault();
     });
 });

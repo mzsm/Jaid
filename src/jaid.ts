@@ -10,6 +10,10 @@
 interface DOMError {
     message?: string
 }
+declare var IDBObjectStore: {
+    prototype: IDBObjectStore;
+    new (): IDBObjectStore;
+}
 
 module Jaid {
     export interface IndexParams {
@@ -36,8 +40,8 @@ module Jaid {
         objectStores?: ObjectStoreParams[];
     }
 
-    export interface UpgradeHistory {
-        [version: number]: (req: IDBOpenDBRequest) => void;
+    export interface MigrationHistory {
+        [version: number]: (transaction: VersionChangeTransaction) => void;
     }
 
     export class Database{
@@ -45,9 +49,9 @@ module Jaid {
         version: number = 1;
         objectStores: ObjectStoreParams[] = [];
         onsuccess: Function = function(){};
-        onerror: Function = function(){};
+        onerror: (error: DOMError, event: Event) => void = function(){};
         onversionchange: (event: IDBVersionChangeEvent) => void = function(event: IDBVersionChangeEvent){};
-        upgradeHistory: UpgradeHistory = {};
+        migrationHistory: MigrationHistory = {};
         connection: Connection;
 
         constructor(name?: string, version?: number, objectStores?: ObjectStoreParams[]);
@@ -64,6 +68,9 @@ module Jaid {
             }
         }
         open(): Database{
+            if(this.connection){
+                throw Error('This database was already opened.');
+            }
             var opener: IDBOpenDBRequest = indexedDB.open(this.name, this.version);
             opener.onsuccess = (event: Event) => {
                 var db = <IDBDatabase>(<IDBOpenDBRequest>event.target).result;
@@ -76,13 +83,19 @@ module Jaid {
             };
             opener.onupgradeneeded = (event: IDBVersionChangeEvent) => {
                 var req = <IDBOpenDBRequest>event.target;
-                var transaction = req.transaction;
                 var db = <IDBDatabase>req.result;
+                this.connection = new Connection(db);
+                var transaction = new VersionChangeTransaction(this.connection, req.transaction);
 
                 if(event.oldVersion == 0){
                     //initialize
                     this.objectStores.forEach((params: ObjectStoreParams) => {
-                        this._createObjectStore(db, params, event.newVersion);
+                        // Exclude "already dropped" or "not yet created" indexes.
+                        if((params.created && params.created > event.newVersion) ||
+                            (params.dropped && params.dropped <= event.newVersion)){
+                            return;
+                        }
+                        transaction.createObjectStore(params, event.newVersion);
                     });
                 }else{
                     //migration
@@ -91,26 +104,26 @@ module Jaid {
                     var createdIndexes: {[ver: number]: {storeName: string; index: IndexParams}[]} = {};
                     var droppedIndexes: {[ver: number]: {storeName: string; index: IndexParams}[]} = {};
                     this.objectStores.forEach((params: ObjectStoreParams) => {
-                        if(params.created > event.oldVersion) {
+                        if(params.created) {
                             if (!(params.created in createdObjectStores)) {
                                 createdObjectStores[params.created] = [];
                             }
                             createdObjectStores[params.created].push(params);
                         }
-                        if(params.dropped && params.dropped > event.oldVersion){
+                        if(params.dropped){
                             if (!(params.dropped in droppedObjectStores)) {
                                 droppedObjectStores[params.dropped] = [];
                             }
                             droppedObjectStores[params.dropped].push(params);
                         }
                         params.indexes.forEach((p: IndexParams) => {
-                            if(p.created && p.created > event.oldVersion && (!params.created || p.created > params.created)) {
+                            if(p.created && (!params.created || p.created > params.created)) {
                                 if (!(p.created in createdIndexes)) {
                                     createdIndexes[p.created] = [];
                                 }
                                 createdIndexes[p.created].push({storeName: params.name, index: p});
                             }
-                            if(p.dropped && p.dropped > event.oldVersion && (!params.dropped || p.dropped < params.dropped)) {
+                            if(p.dropped && (!params.dropped || p.dropped < params.dropped)) {
                                 if (!(p.dropped in droppedIndexes)) {
                                     droppedIndexes[p.dropped] = [];
                                 }
@@ -120,37 +133,37 @@ module Jaid {
                     });
                     var versions: number[] = Object.keys(createdObjectStores)
                         .concat(Object.keys(createdIndexes))
-                        .concat(Object.keys(this.upgradeHistory)).map((v) => {return parseInt(v)});
-                    versions.filter(function(v, i){ return(v > event.oldVersion && this.indexOf(v) == i); }, versions)
+                        .concat(Object.keys(droppedObjectStores))
+                        .concat(Object.keys(droppedIndexes))
+                        .concat(Object.keys(this.migrationHistory)).map((v) => {return parseInt(v)});
+                    versions.filter(function(v, i){ return(v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i); }, versions)
                         .sort()
                         .forEach((version: number) => {
                             // Add new objectStore and Index.
                             if(version in createdObjectStores){
                                 createdObjectStores[version].forEach((val: ObjectStoreParams) => {
-                                    this._createObjectStore(db, val, version);
+                                    transaction.createObjectStore(val, version);
                                 });
                             }
                             if(version in createdIndexes){
                                 createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
-                                    var objectStore = transaction.objectStore(val.storeName);
-                                    this._createIndex(objectStore, val.index);
+                                    transaction.createIndex(val.storeName, val.index);
                                 });
                             }
                             // Custom operation
-                            if(version in this.upgradeHistory){
-                                this.upgradeHistory[version](req);
+                            if(version in this.migrationHistory){
+                                this.migrationHistory[version](transaction);
                             }
 
                             // Remove deprecated objectStore and Index.
                             if(version in droppedObjectStores){
                                 droppedObjectStores[version].forEach((val: ObjectStoreParams) => {
-                                    this._createObjectStore(db, val, version);
+                                    transaction.dropObjectStore(val);
                                 });
                             }
                             if(version in createdIndexes){
                                 createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
-                                    var objectStore = transaction.objectStore(val.storeName);
-                                    this._createIndex(objectStore, val.index);
+                                    transaction.dropIndex(val.storeName, val.index);
                                 });
                             }
                         });
@@ -165,7 +178,7 @@ module Jaid {
             this.onsuccess = onsuccess;
             return this;
         }
-        error(onerror: Function): Database{
+        error(onerror: (error: DOMError, event: Event) => void): Database{
             this.onerror = onerror;
             return this;
         }
@@ -173,21 +186,9 @@ module Jaid {
             this.onversionchange = onversionchange;
             return this;
         }
-        history(upgradeHistory: UpgradeHistory): Database{
-            this.upgradeHistory = upgradeHistory;
+        migration(migrationHistory: MigrationHistory): Database{
+            this.migrationHistory = migrationHistory;
             return this;
-        }
-        private _createObjectStore(db: IDBDatabase, objectStore: ObjectStoreParams, indexVersion?: number): IDBObjectStore{
-            if(!(objectStore instanceof ObjectStore)){
-                objectStore = new ObjectStore(objectStore);
-            }
-            return (<ObjectStore>objectStore).create(db, indexVersion);
-        }
-        private _createIndex(objectStore: IDBObjectStore, index: IndexParams): IDBIndex{
-            if(!(index instanceof Index)){
-                index = new Index(index);
-            }
-            return (<Index>index).create(objectStore);
         }
     }
 
@@ -212,25 +213,6 @@ module Jaid {
             }
             this.created = params.created || this.created;
         }
-        create(db: IDBDatabase, indexVersion?:number): IDBObjectStore{
-            var objectStore: IDBObjectStore = db.createObjectStore(this.name, {keyPath: this.keyPath, autoIncrement: this.autoIncrement});
-            //create indexes.
-            if(typeof indexVersion === 'number'){
-                this.indexes.forEach(function(index: IndexParams){
-                    // オブジェクトストアを作成したバージョンの時点ではまだ存在しなかった、
-                    // またはすでに削除されていたインデックスは作成しない
-                    if((index.created && index.created > indexVersion) ||
-                       (index.dropped && index.dropped <= indexVersion)){
-                        return;
-                    }
-                    if(!(index instanceof Index)){
-                        index = new Index(index);
-                    }
-                    (<Index>index).create(objectStore);
-                });
-            }
-            return objectStore;
-        }
         drop(db: IDBDatabase): void{
             db.deleteObjectStore(this.name);
         }
@@ -245,7 +227,7 @@ module Jaid {
         unique = false;
         multiEntry = false;
         created: number = 0;
-        removed: number;
+        dropped: number;
 
         constructor(params: IndexParams){
             this.name = params.name || this.name;
@@ -256,9 +238,8 @@ module Jaid {
             if(typeof params.unique !== "undefined"){
                 this.multiEntry = params.multiEntry;
             }
-        }
-        create(objectStore: IDBObjectStore): IDBIndex{
-            return objectStore.createIndex(this.name, this.keyPath, {unique: this.unique, multiEntry:this.multiEntry});
+            this.created = params.created;
+            this.dropped = params.dropped;
         }
         drop(objectStore: IDBObjectStore): void{
             objectStore.deleteIndex(this.name);
@@ -275,31 +256,63 @@ module Jaid {
             this.db = db;
         }
         insert(storeName: string, value: any, key?: any): Transaction {
-            var transaction = new Transaction(this, storeName, "readwrite");
+            var transaction = new ReadWriteTransaction(this, storeName);
             transaction.add(storeName, value, key);
             return transaction;
         }
         save(storeName: string, value: any, key?: any): Transaction {
-            var transaction = new Transaction(this, storeName, "readwrite");
+            var transaction = new ReadWriteTransaction(this, storeName);
             transaction.put(storeName, value, key);
             return transaction;
         }
-        transaction(storeNames: any, mode?: string): Transaction{
-            return new Transaction(this, storeNames, mode);
+//        transaction(storeNames: any, mode: "readonly"): Transaction;
+//        transaction(storeNames: any, mode: "readwrite"): Transaction;
+//        transaction(storeNames: any, mode: string): Transaction{
+//            return new Transaction(this, storeNames);
+//        }
+        close(): void{
+            this.db.close();
         }
     }
+
+    /**
+     * upgrade connection
+     */
 
     /**
      * transaction
      */
     export class Transaction {
+        connection: Connection;
         transaction: IDBTransaction;
         oncomplete: Function = function(){};
         onerror: Function = function(){};
         onabort: Function = function(){};
+        storeNames: string[];
+        mode: string;
 
-        constructor(connection: Connection, storeNames: any, mode: string = "readonly"){
-            this.transaction = connection.db.transaction(storeNames, mode);
+        constructor(connection: Connection, storeNames?: string);
+        constructor(connection: Connection, storeNames?: string[]);
+        constructor(connection: Connection, storeNames?: any){
+            this.connection = connection;
+            if(typeof storeNames === "string"){
+                storeNames = [storeNames];
+            }
+            if(storeNames){
+                this.storeNames = storeNames;
+            }
+        }
+        begin(storeNames?: string): Transaction;
+        begin(storeNames?: string[]): Transaction;
+        begin(storeNames?: any): Transaction{
+            if(this.transaction){
+                throw Error('This transaction was already begun.');
+            }
+            this.transaction = this.connection.db.transaction(storeNames, this.mode);
+            this._setTransactionEvents();
+            return this;
+        }
+        _setTransactionEvents(): void{
             this.transaction.oncomplete = () => {
                 this.oncomplete();
             };
@@ -309,16 +322,6 @@ module Jaid {
             this.transaction.onabort = () => {
                 this.onabort();
             };
-        }
-        add(storeName: string, value: any, key?: any): Transaction{
-            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
-            objectStore.add(value, key);
-            return this;
-        }
-        put(storeName: string, value: any, key?: any): Transaction{
-            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
-            objectStore.put(value, key);
-            return this;
         }
         complete(complete: Function): Transaction{
             this.oncomplete = complete;
@@ -335,6 +338,113 @@ module Jaid {
         withTransaction(func: (t: IDBTransaction) => void): Transaction{
             func(this.transaction);
             return this;
+        }
+    }
+
+    export class ReadOnlyTransaction extends Transaction{
+        mode: string = "readonly";
+    }
+
+    /**
+     * Read/Write transaction
+     */
+    export class ReadWriteTransaction extends ReadOnlyTransaction{
+        mode: string = "readwrite";
+        add(storeName: string, value: any, key?: any): Transaction{
+            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
+            objectStore.add(value, key);
+            return this;
+        }
+        put(storeName: string, value: any, key?: any): Transaction{
+            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
+            objectStore.put(value, key);
+            return this;
+        }
+    }
+
+    /**
+     * Read/Write transaction
+     */
+    export class VersionChangeTransaction extends ReadWriteTransaction{
+        constructor(connection: Connection, transaction: IDBTransaction){
+            super(connection);
+            this.transaction = transaction;
+            this._setTransactionEvents();
+        }
+        createObjectStore(objectStore: ObjectStoreParams, indexVersion?: number): IDBObjectStore{
+            var db = this.connection.db;
+            if(!(objectStore instanceof ObjectStore)){
+                objectStore = new ObjectStore(objectStore);
+            }
+            var idbObjectStore: IDBObjectStore = db.createObjectStore(objectStore.name, {keyPath: objectStore.keyPath, autoIncrement: objectStore.autoIncrement||false});
+
+            //create indexes.
+            if(typeof indexVersion === 'number'){
+                objectStore.indexes.forEach((index: IndexParams) => {
+                    // Exclude "already dropped" or "not yet created" indexes.
+                    if((index.created && index.created > indexVersion) ||
+                        (index.dropped && index.dropped <= indexVersion)){
+                        return;
+                    }
+                    //this.createIndex(idbObjectStore, index);
+                });
+            }
+            return idbObjectStore;
+        }
+        createIndex(objectStore: string, index: IndexParams): IDBIndex;
+        createIndex(objectStore: ObjectStoreParams, index: IndexParams): IDBIndex;
+        createIndex(objectStore: IDBObjectStore, index: IndexParams): IDBIndex;
+        createIndex(objectStore: any, index: IndexParams): IDBIndex{
+            var idbObjectStore: IDBObjectStore;
+            if(typeof objectStore === "function" && objectStore instanceof IDBObjectStore){
+                idbObjectStore = objectStore;
+            }else{
+                var storeName = (typeof objectStore === "string")? objectStore: objectStore.name;
+                idbObjectStore = this.transaction.objectStore(storeName);
+            }
+            if(!(index instanceof Index)){
+                index = new Index(index);
+            }
+
+            return idbObjectStore.createIndex(index.name, index.keyPath, {unique: index.unique||false, multiEntry: index.multiEntry||false});
+        }
+        dropObjectStore(objectStore: string): void;
+        dropObjectStore(objectStore: ObjectStoreParams): void;
+        dropObjectStore(objectStore: IDBObjectStore): void;
+        dropObjectStore(objectStore: any): void{
+            var db = this.connection.db;
+            var name: string;
+            if(typeof objectStore === "string"){
+                name = <string>objectStore;
+            }else{
+                name = <string>objectStore.name;
+            }
+            db.deleteObjectStore(name);
+        }
+        dropIndex(objectStore: string, index: IndexParams): void;
+        dropIndex(objectStore: ObjectStoreParams, index: IndexParams): void;
+        dropIndex(objectStore: IDBObjectStore, index: IndexParams): void;
+        dropIndex(objectStore: string, index: string): void;
+        dropIndex(objectStore: ObjectStoreParams, index: string): void;
+        dropIndex(objectStore: IDBObjectStore, index: string): void;
+        dropIndex(objectStore: string, index: IDBIndex): void;
+        dropIndex(objectStore: ObjectStoreParams, index: IDBIndex): void;
+        dropIndex(objectStore: IDBObjectStore, index: IDBIndex): void;
+        dropIndex(objectStore: any, index: any): void{
+            var idbObjectStore: IDBObjectStore;
+            var indexName: string;
+            if(typeof objectStore === "function" && objectStore instanceof IDBObjectStore){
+                idbObjectStore = objectStore;
+            }else{
+                var storeName = (typeof objectStore === "string")? objectStore: objectStore.name;
+                idbObjectStore = this.transaction.objectStore(storeName);
+            }
+            if(typeof index === 'string'){
+                indexName = index;
+            }else{
+                indexName = index.name;
+            }
+            idbObjectStore.deleteIndex(indexName);
         }
     }
 }
