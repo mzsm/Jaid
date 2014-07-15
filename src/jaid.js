@@ -211,38 +211,33 @@ var Jaid;
     })();
     Jaid.Index = Index;
 
-    /**
-    * connection.
-    */
+    
     var Connection = (function () {
         function Connection(db) {
             this.db = db;
         }
         Connection.prototype.select = function (storeName) {
-            var transaction = new ReadOnlyTransaction(this, storeName);
-
+            var transaction = this.readOnlyTransaction(storeName);
+            transaction.begin();
             return transaction;
         };
         Connection.prototype.insert = function (storeName, value, key) {
-            var transaction = new ReadWriteTransaction(this, storeName);
+            var transaction = this.readWriteTransaction(storeName);
             transaction.begin().add(storeName, value, key);
             return transaction;
         };
         Connection.prototype.save = function (storeName, value, key) {
-            var transaction = new ReadWriteTransaction(this, storeName);
+            var transaction = this.readWriteTransaction(storeName);
             transaction.begin().put(storeName, value, key);
             return transaction;
         };
 
-        Connection.prototype.transaction = function (storeNames, mode) {
-            switch (mode) {
-                case "readonly":
-                    return new ReadOnlyTransaction(this, storeNames);
-                case "readwrite":
-                    return new ReadWriteTransaction(this, storeNames);
-                default:
-                    throw Error("parameter mode is \"readonly\" or \"readwrite\"");
-            }
+        Connection.prototype.readOnlyTransaction = function (storeNames) {
+            return new ReadOnlyTransaction(this, storeNames);
+        };
+
+        Connection.prototype.readWriteTransaction = function (storeNames) {
+            return new ReadWriteTransaction(this, storeNames);
         };
         Connection.prototype.close = function () {
             this.db.close();
@@ -250,22 +245,19 @@ var Jaid;
         };
         return Connection;
     })();
-    Jaid.Connection = Connection;
 
-    /**
-    * upgrade connection
-    */
-    /**
-    * transaction
-    */
-    var Transaction = (function () {
-        function Transaction(connection, storeNames) {
+    
+
+    var TransactionBase = (function () {
+        function TransactionBase(connection, storeNames) {
             this.oncomplete = function () {
             };
             this.onerror = function () {
             };
             this.onabort = function () {
             };
+            this.results = {};
+            this.requests = [];
             this.connection = connection;
             if (typeof storeNames === "string") {
                 storeNames = [storeNames];
@@ -274,18 +266,18 @@ var Jaid;
                 this.storeNames = storeNames;
             }
         }
-        Transaction.prototype.begin = function (storeNames) {
+        TransactionBase.prototype.begin = function (storeNames) {
             if (this.transaction) {
                 throw Error('This transaction was already begun.');
             }
-            this.transaction = this.connection.db.transaction(storeNames, this.mode);
+            this.transaction = this.connection.db.transaction(storeNames || this.storeNames, this.mode);
             this._setTransactionEvents();
             return this;
         };
-        Transaction.prototype._setTransactionEvents = function () {
+        TransactionBase.prototype._setTransactionEvents = function () {
             var _this = this;
             this.transaction.oncomplete = function () {
-                _this.oncomplete();
+                _this.oncomplete(_this.results);
             };
             this.transaction.onerror = function () {
                 _this.onerror();
@@ -294,28 +286,32 @@ var Jaid;
                 _this.onabort();
             };
         };
-        Transaction.prototype.onComplete = function (complete) {
+        TransactionBase.prototype.onComplete = function (complete) {
             this.oncomplete = complete;
             return this;
         };
-        Transaction.prototype.onError = function (error) {
+        TransactionBase.prototype.onError = function (error) {
             this.onerror = error;
             return this;
         };
-        Transaction.prototype.onAbort = function (abort) {
+        TransactionBase.prototype.onAbort = function (abort) {
             this.onabort = abort;
             return this;
         };
-        Transaction.prototype.withTransaction = function (func) {
+        TransactionBase.prototype._registerRequest = function (request) {
+            var req = new Request(this, this.requests.length, request);
+            this.requests.push(req);
+            return req;
+        };
+        TransactionBase.prototype.withTransaction = function (func) {
             func(this.transaction);
             return this;
         };
-        Transaction.prototype.abort = function () {
+        TransactionBase.prototype.abort = function () {
             this.transaction.abort();
         };
-        return Transaction;
+        return TransactionBase;
     })();
-    Jaid.Transaction = Transaction;
 
     var ReadOnlyTransaction = (function (_super) {
         __extends(ReadOnlyTransaction, _super);
@@ -323,13 +319,19 @@ var Jaid;
             _super.apply(this, arguments);
             this.mode = "readonly";
         }
+        ReadOnlyTransaction.prototype.getByKey = function (storeName, key) {
+            var objectStore = this.transaction.objectStore(storeName);
+            return this._registerRequest(objectStore.get(key));
+        };
+        ReadOnlyTransaction.prototype.findByKey = function (storeName, range, direction) {
+            var objectStore = this.transaction.objectStore(storeName);
+            return this._registerRequest(objectStore.openCursor(range, direction));
+        };
         return ReadOnlyTransaction;
-    })(Transaction);
-    Jaid.ReadOnlyTransaction = ReadOnlyTransaction;
+    })(TransactionBase);
 
-    /**
-    * Read/Write transaction
-    */
+    
+
     var ReadWriteTransaction = (function (_super) {
         __extends(ReadWriteTransaction, _super);
         function ReadWriteTransaction() {
@@ -348,11 +350,9 @@ var Jaid;
         };
         return ReadWriteTransaction;
     })(ReadOnlyTransaction);
-    Jaid.ReadWriteTransaction = ReadWriteTransaction;
 
-    /**
-    * Read/Write transaction
-    */
+    
+
     var VersionChangeTransaction = (function (_super) {
         __extends(VersionChangeTransaction, _super);
         function VersionChangeTransaction(connection, transaction) {
@@ -424,6 +424,24 @@ var Jaid;
         };
         return VersionChangeTransaction;
     })(ReadWriteTransaction);
-    Jaid.VersionChangeTransaction = VersionChangeTransaction;
+
+    
+    var Request = (function () {
+        function Request(transaction, id, request) {
+            var _this = this;
+            this.transaction = transaction;
+            this.id = id;
+            this.request = request;
+
+            this.request.onsuccess = function (event) {
+                _this.transaction.results[_this.id] = event.target;
+            };
+        }
+        Request.prototype.onSuccess = function (onsuccess) {
+            this.request.onsuccess = onsuccess;
+            return this;
+        };
+        return Request;
+    })();
 })(Jaid || (Jaid = {}));
 //# sourceMappingURL=jaid.js.map

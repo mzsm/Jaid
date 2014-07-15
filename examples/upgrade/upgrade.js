@@ -125,6 +125,14 @@ function checkVersion(db) {
         var storeName = objectStoreNames[i];
         var li = $('<li>').text(storeName);
 
+        var transaction = db.connection.readOnlyTransaction(objectStoreNames).begin();
+
+        var req = transaction.findByKey('store1', null, 'next');
+
+        transaction.onComplete(function (result) {
+            console.log(result);
+        });
+
         $showSchema.append(li);
     }
 }

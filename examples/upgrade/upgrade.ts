@@ -6,30 +6,30 @@
 interface Schema {
     schema: Jaid.ObjectStoreParams[];
     history?: Jaid.MigrationHistory;
-    created?: (transaction: Jaid.VersionChangeTransaction, event: IDBVersionChangeEvent) => void;
+    created?: (transaction: Jaid.IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
 }
 interface SchemaTable {
     [version: string]: Schema;
 }
 
-var upgradeHistoryFunc2 = function(transaction: Jaid.VersionChangeTransaction){
+var upgradeHistoryFunc2 = function(transaction: Jaid.IVersionChangeTransaction){
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.2'));
     transaction.put('store1', {message: 'set version2', updated: new Date()});
 };
-var upgradeHistoryFunc3000 = function(transaction: Jaid.VersionChangeTransaction){
+var upgradeHistoryFunc3000 = function(transaction: Jaid.IVersionChangeTransaction){
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.3000'));
     transaction.put('store1', {message: 'set version3', updated: new Date()});
 };
 
-var createdFunc1 = function(transaction: Jaid.VersionChangeTransaction) {
+var createdFunc1 = function(transaction: Jaid.IVersionChangeTransaction) {
     $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.1'));
     transaction.put('store1', {message: 'create DB version1'});
 };
-var createdFunc2 = function(transaction: Jaid.VersionChangeTransaction) {
+var createdFunc2 = function(transaction: Jaid.IVersionChangeTransaction) {
     $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.2'));
     transaction.put('store1', {message: 'create DB version3'});
 };
-var createdFunc3 = function(transaction: Jaid.VersionChangeTransaction) {
+var createdFunc3 = function(transaction: Jaid.IVersionChangeTransaction) {
     $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.3000'));
     transaction.put('store1', {message: 'create DB version3000'});
 };
@@ -134,6 +134,14 @@ function checkVersion(db: Jaid.Database): void{
     for(var i=0; i<OSLength; i++){
         var storeName: string = objectStoreNames[i];
         var li = $('<li>').text(storeName);
+
+        var transaction = db.connection.readOnlyTransaction(objectStoreNames).begin();
+
+        var req = transaction.findByKey('store1', null, 'next');
+
+        transaction.onComplete(function (result: any){
+            console.log(result);
+        });
 
         $showSchema.append(li);
     }
