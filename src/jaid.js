@@ -6,7 +6,7 @@
 * @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
 */
 //var indexedDB = window.indexedDB;
-"strict mode";
+"use strict";
 var __extends = this.__extends || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
     function __() { this.constructor = d; }

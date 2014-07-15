@@ -6,7 +6,7 @@
  * @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
  */
 //var indexedDB = window.indexedDB;
-"strict mode";
+"use strict";
 
 interface DOMError {
     message?: string
