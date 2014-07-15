@@ -17,9 +17,12 @@
             <form class="setVersionForm form form-inline">
                 <select name="versions" id="versions" class="form-control"></select>
                 <button class="btn btn-primary">Open as this version</button>
+                <h3>Schema:</h3>
                 <pre><code id="schemaPreview"></code></pre>
+                <h3>onMigration:</h3>
                 <pre><code id="historyPreview"></code></pre>
-                <pre><code id="oninitializedPreview"></code></pre>
+                <h3>onCreated:</h3>
+                <pre><code id="onCreatedPreview"></code></pre>
             </form>
         </div>
         <div class="col-xs-6">

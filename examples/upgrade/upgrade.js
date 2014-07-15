@@ -3,12 +3,25 @@
 /// <reference path="../../d.ts/bootstrap/bootstrap.d.ts" />
 "use strict";
 var upgradeHistoryFunc2 = function (transaction) {
-    $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver 2.'));
+    $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.2'));
     transaction.put('store1', { message: 'set version2', updated: new Date() });
 };
 var upgradeHistoryFunc3000 = function (transaction) {
-    $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver 3000.'));
+    $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.3000'));
     transaction.put('store1', { message: 'set version3', updated: new Date() });
+};
+
+var createdFunc1 = function (transaction) {
+    $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.1'));
+    transaction.put('store1', { message: 'create DB version1' });
+};
+var createdFunc2 = function (transaction) {
+    $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.2'));
+    transaction.put('store1', { message: 'create DB version3' });
+};
+var createdFunc3 = function (transaction) {
+    $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.3000'));
+    transaction.put('store1', { message: 'create DB version3000' });
 };
 
 var schemaTable = {};
@@ -22,7 +35,8 @@ schemaTable[1] = {
             ]
         }
     ],
-    history: {}
+    history: {},
+    created: createdFunc1
 };
 schemaTable[2] = {
     schema: [
@@ -46,7 +60,8 @@ schemaTable[2] = {
     ],
     history: {
         2: upgradeHistoryFunc2
-    }
+    },
+    created: createdFunc2
 };
 schemaTable[3000] = {
     schema: [
@@ -81,11 +96,24 @@ schemaTable[3000] = {
     history: {
         2: upgradeHistoryFunc2,
         3: upgradeHistoryFunc3000
-    }
+    },
+    created: createdFunc3
 };
-schemaTable["1 (with ver.3000's schema)"] = schemaTable[3000];
-schemaTable["2 (with ver.3000's schema)"] = schemaTable[3000];
-schemaTable["1 (with ver.2's schema)"] = schemaTable[2];
+schemaTable["1 (with ver.3000's schema)"] = {
+    schema: schemaTable[3000].schema,
+    history: schemaTable[3000].history,
+    created: createdFunc1
+};
+schemaTable["2 (with ver.3000's schema)"] = {
+    schema: schemaTable[3000].schema,
+    history: schemaTable[3000].history,
+    created: createdFunc2
+};
+schemaTable["1 (with ver.2's schema)"] = {
+    schema: schemaTable[2].schema,
+    history: schemaTable[2].history,
+    created: createdFunc1
+};
 
 function checkVersion(db) {
     $('#dbVersion').text(db.version);
@@ -103,28 +131,28 @@ function checkVersion(db) {
 
 function execute(version, schema) {
     $('#alerts').empty();
-    var db = new Jaid.Database('upgradeTest', version, schema.schema).open().success(function () {
+    var db = new Jaid.Database('upgradeTest', version, schema.schema).open().onSuccess(function () {
         checkVersion(db);
         db.connection.close();
-    }).error(function (err, event) {
-        console.log(err);
+    }).onError(function (err, event) {
         var alert = $('<div class="alert alert-danger">');
         alert.append($('<p class="lead">').text(err.name));
         alert.append($('<p>').text(err.message));
         $('#alerts').append(alert);
     });
     if (schema.history) {
-        db.migration(schema.history);
+        db.onMigration(schema.history);
     }
-    /*
-    db.onblocked = function () {
-    $('#alerts')
+    if (schema.created) {
+        db.onCreated(schema.created);
     }
-    */
 }
 
 function reset() {
-    indexedDB.deleteDatabase('upgradeTest');
+    new Jaid.Database('upgradeTest').delete();
+    $('#alerts').empty();
+    $('#dbVersion').empty();
+    $('#showSchema').empty();
 }
 
 $(document).ready(function () {
@@ -146,6 +174,7 @@ $(document).ready(function () {
             historyText += '}';
         }
         $('#historyPreview').text(historyText);
+        $('#onCreatedPreview').text(schemaTable[ver].created.toString());
     }).trigger('change');
 
     $('.setVersionForm').on('submit', function (event) {

@@ -6,25 +6,19 @@
 * @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
 */
 //var indexedDB = window.indexedDB;
+"strict mode";
 var __extends = this.__extends || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
     function __() { this.constructor = d; }
     __.prototype = b.prototype;
     d.prototype = new __();
 };
-
 var Jaid;
 (function (Jaid) {
     var Database = (function () {
         function Database(param, version, objectStores) {
             this.version = 1;
             this.objectStores = [];
-            this.onsuccess = function () {
-            };
-            this.onerror = function () {
-            };
-            this.onversionchange = function (event) {
-            };
             this.migrationHistory = {};
             if (typeof param === 'string') {
                 this.name = param;
@@ -51,6 +45,9 @@ var Jaid;
                 var error = opener.error;
                 _this.onerror(error, event);
             };
+            opener.onblocked = function (event) {
+                _this.onblocked(event);
+            };
             opener.onupgradeneeded = function (event) {
                 var req = event.target;
                 var db = req.result;
@@ -66,6 +63,9 @@ var Jaid;
                         }
                         transaction.createObjectStore(params, event.newVersion);
                     });
+                    if (_this.oncreated) {
+                        _this.oncreated(transaction, event);
+                    }
                 } else {
                     //migration
                     var createdObjectStores = {};
@@ -120,7 +120,7 @@ var Jaid;
 
                         // Custom operation
                         if (version in _this.migrationHistory) {
-                            _this.migrationHistory[version](transaction);
+                            _this.migrationHistory[version](transaction, event);
                         }
 
                         // Remove deprecated objectStore and Index.
@@ -136,27 +136,31 @@ var Jaid;
                         }
                     });
                 }
-                if (_this.onversionchange) {
-                    _this.onversionchange(event);
-                }
             };
             return this;
         };
-        Database.prototype.success = function (onsuccess) {
+        Database.prototype.onSuccess = function (onsuccess) {
             this.onsuccess = onsuccess;
             return this;
         };
-        Database.prototype.error = function (onerror) {
+        Database.prototype.onError = function (onerror) {
             this.onerror = onerror;
             return this;
         };
-        Database.prototype.versionchange = function (onversionchange) {
-            this.onversionchange = onversionchange;
+        Database.prototype.onBlocked = function (onblocked) {
+            this.onblocked = onblocked;
             return this;
         };
-        Database.prototype.migration = function (migrationHistory) {
+        Database.prototype.onCreated = function (oncreated) {
+            this.oncreated = oncreated;
+            return this;
+        };
+        Database.prototype.onMigration = function (migrationHistory) {
             this.migrationHistory = migrationHistory;
             return this;
+        };
+        Database.prototype.delete = function () {
+            indexedDB.deleteDatabase(this.name);
         };
         return Database;
     })();
@@ -180,9 +184,6 @@ var Jaid;
             }
             this.created = params.created || this.created;
         }
-        ObjectStore.prototype.drop = function (db) {
-            db.deleteObjectStore(this.name);
-        };
         return ObjectStore;
     })();
     Jaid.ObjectStore = ObjectStore;
@@ -206,9 +207,6 @@ var Jaid;
             this.created = params.created;
             this.dropped = params.dropped;
         }
-        Index.prototype.drop = function (objectStore) {
-            objectStore.deleteIndex(this.name);
-        };
         return Index;
     })();
     Jaid.Index = Index;
@@ -220,24 +218,35 @@ var Jaid;
         function Connection(db) {
             this.db = db;
         }
+        Connection.prototype.select = function (storeName) {
+            var transaction = new ReadOnlyTransaction(this, storeName);
+
+            return transaction;
+        };
         Connection.prototype.insert = function (storeName, value, key) {
             var transaction = new ReadWriteTransaction(this, storeName);
-            transaction.add(storeName, value, key);
+            transaction.begin().add(storeName, value, key);
             return transaction;
         };
         Connection.prototype.save = function (storeName, value, key) {
             var transaction = new ReadWriteTransaction(this, storeName);
-            transaction.put(storeName, value, key);
+            transaction.begin().put(storeName, value, key);
             return transaction;
         };
 
-        //        transaction(storeNames: any, mode: "readonly"): Transaction;
-        //        transaction(storeNames: any, mode: "readwrite"): Transaction;
-        //        transaction(storeNames: any, mode: string): Transaction{
-        //            return new Transaction(this, storeNames);
-        //        }
+        Connection.prototype.transaction = function (storeNames, mode) {
+            switch (mode) {
+                case "readonly":
+                    return new ReadOnlyTransaction(this, storeNames);
+                case "readwrite":
+                    return new ReadWriteTransaction(this, storeNames);
+                default:
+                    throw Error("parameter mode is \"readonly\" or \"readwrite\"");
+            }
+        };
         Connection.prototype.close = function () {
             this.db.close();
+            this.db = null;
         };
         return Connection;
     })();
@@ -285,21 +294,24 @@ var Jaid;
                 _this.onabort();
             };
         };
-        Transaction.prototype.complete = function (complete) {
+        Transaction.prototype.onComplete = function (complete) {
             this.oncomplete = complete;
             return this;
         };
-        Transaction.prototype.error = function (error) {
+        Transaction.prototype.onError = function (error) {
             this.onerror = error;
             return this;
         };
-        Transaction.prototype.abort = function (abort) {
+        Transaction.prototype.onAbort = function (abort) {
             this.onabort = abort;
             return this;
         };
         Transaction.prototype.withTransaction = function (func) {
             func(this.transaction);
             return this;
+        };
+        Transaction.prototype.abort = function () {
+            this.transaction.abort();
         };
         return Transaction;
     })();

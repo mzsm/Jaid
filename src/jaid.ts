@@ -6,6 +6,7 @@
  * @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
  */
 //var indexedDB = window.indexedDB;
+"strict mode";
 
 interface DOMError {
     message?: string
@@ -13,7 +14,7 @@ interface DOMError {
 declare var IDBObjectStore: {
     prototype: IDBObjectStore;
     new (): IDBObjectStore;
-}
+};
 
 module Jaid {
     export interface IndexParams {
@@ -41,16 +42,17 @@ module Jaid {
     }
 
     export interface MigrationHistory {
-        [version: number]: (transaction: VersionChangeTransaction) => void;
+        [version: number]: (transaction: VersionChangeTransaction, event: IDBVersionChangeEvent) => void;
     }
 
     export class Database{
         name: string;
         version: number = 1;
         objectStores: ObjectStoreParams[] = [];
-        onsuccess: Function = function(){};
-        onerror: (error: DOMError, event: Event) => void = function(){};
-        onversionchange: (event: IDBVersionChangeEvent) => void = function(event: IDBVersionChangeEvent){};
+        onsuccess: (event: Event) => void;
+        onerror: (error: DOMError, event: Event) => void;
+        onblocked: (event: Event) => void;
+        oncreated: (transaction: VersionChangeTransaction, event: IDBVersionChangeEvent) => void;
         migrationHistory: MigrationHistory = {};
         connection: Connection;
 
@@ -81,6 +83,9 @@ module Jaid {
                 var error = opener.error;
                 this.onerror(error, event);
             };
+            opener.onblocked = (event: Event) => {
+                this.onblocked(event);
+            };
             opener.onupgradeneeded = (event: IDBVersionChangeEvent) => {
                 var req = <IDBOpenDBRequest>event.target;
                 var db = <IDBDatabase>req.result;
@@ -97,6 +102,9 @@ module Jaid {
                         }
                         transaction.createObjectStore(params, event.newVersion);
                     });
+                    if(this.oncreated){
+                        this.oncreated(transaction, event);
+                    }
                 }else{
                     //migration
                     var createdObjectStores: {[ver: number]: ObjectStoreParams[]} = {};
@@ -152,7 +160,7 @@ module Jaid {
                             }
                             // Custom operation
                             if(version in this.migrationHistory){
-                                this.migrationHistory[version](transaction);
+                                this.migrationHistory[version](transaction, event);
                             }
 
                             // Remove deprecated objectStore and Index.
@@ -168,27 +176,31 @@ module Jaid {
                             }
                         });
                 }
-                if(this.onversionchange){
-                    this.onversionchange(event);
-                }
             };
             return this;
         }
-        success(onsuccess: Function): Database{
+        onSuccess(onsuccess: (event: Event) => void): Database{
             this.onsuccess = onsuccess;
             return this;
         }
-        error(onerror: (error: DOMError, event: Event) => void): Database{
+        onError(onerror: (error: DOMError, event: Event) => void): Database{
             this.onerror = onerror;
             return this;
         }
-        versionchange(onversionchange: (event: IDBVersionChangeEvent) => void): Database{
-            this.onversionchange = onversionchange;
+        onBlocked(onblocked: (event: Event) => void): Database{
+            this.onblocked = onblocked;
             return this;
         }
-        migration(migrationHistory: MigrationHistory): Database{
+        onCreated(oncreated: (transaction: VersionChangeTransaction, event: IDBVersionChangeEvent) => void): Database{
+            this.oncreated = oncreated;
+            return this;
+        }
+        onMigration(migrationHistory: MigrationHistory): Database{
             this.migrationHistory = migrationHistory;
             return this;
+        }
+        delete(): void{
+            indexedDB.deleteDatabase(this.name);
         }
     }
 
@@ -212,9 +224,6 @@ module Jaid {
                 this.indexes = params.indexes;
             }
             this.created = params.created || this.created;
-        }
-        drop(db: IDBDatabase): void{
-            db.deleteObjectStore(this.name);
         }
     }
 
@@ -241,9 +250,6 @@ module Jaid {
             this.created = params.created;
             this.dropped = params.dropped;
         }
-        drop(objectStore: IDBObjectStore): void{
-            objectStore.deleteIndex(this.name);
-        }
     }
 
     /**
@@ -255,23 +261,36 @@ module Jaid {
         constructor(db: IDBDatabase) {
             this.db = db;
         }
-        insert(storeName: string, value: any, key?: any): Transaction {
-            var transaction = new ReadWriteTransaction(this, storeName);
-            transaction.add(storeName, value, key);
+        select(storeName: string): ReadOnlyTransaction{
+            var transaction = new ReadOnlyTransaction(this, storeName);
+
             return transaction;
         }
-        save(storeName: string, value: any, key?: any): Transaction {
-            var transaction = new ReadWriteTransaction(this, storeName);
-            transaction.put(storeName, value, key);
+        insert(storeName: string, value: any, key?: any): ReadWriteTransaction {
+            var transaction: ReadWriteTransaction = new ReadWriteTransaction(this, storeName);
+            transaction.begin().add(storeName, value, key);
             return transaction;
         }
-//        transaction(storeNames: any, mode: "readonly"): Transaction;
-//        transaction(storeNames: any, mode: "readwrite"): Transaction;
-//        transaction(storeNames: any, mode: string): Transaction{
-//            return new Transaction(this, storeNames);
-//        }
+        save(storeName: string, value: any, key?: any): ReadWriteTransaction {
+            var transaction: ReadWriteTransaction = new ReadWriteTransaction(this, storeName);
+            transaction.begin().put(storeName, value, key);
+            return transaction;
+        }
+        transaction(storeNames: string, mode: string): Transaction;
+        transaction(storeNames: string[], mode: string): Transaction;
+        transaction(storeNames: any, mode: string): Transaction{
+            switch (mode){
+                case "readonly":
+                    return new ReadOnlyTransaction(this, storeNames);
+                case "readwrite":
+                    return new ReadWriteTransaction(this, storeNames);
+                default:
+                    throw Error("parameter mode is \"readonly\" or \"readwrite\"");
+            }
+        }
         close(): void{
             this.db.close();
+            this.db = null;
         }
     }
 
@@ -302,9 +321,9 @@ module Jaid {
                 this.storeNames = storeNames;
             }
         }
-        begin(storeNames?: string): Transaction;
-        begin(storeNames?: string[]): Transaction;
-        begin(storeNames?: any): Transaction{
+        begin(storeNames?: string): any;
+        begin(storeNames?: string[]): any;
+        begin(storeNames?: any): any{
             if(this.transaction){
                 throw Error('This transaction was already begun.');
             }
@@ -323,21 +342,24 @@ module Jaid {
                 this.onabort();
             };
         }
-        complete(complete: Function): Transaction{
+        onComplete(complete: Function): any{
             this.oncomplete = complete;
             return this;
         }
-        error(error: Function): Transaction{
+        onError(error: Function): any{
             this.onerror = error;
             return this;
         }
-        abort(abort: Function): Transaction{
+        onAbort(abort: Function): any{
             this.onabort = abort;
             return this;
         }
-        withTransaction(func: (t: IDBTransaction) => void): Transaction{
+        withTransaction(func: (t: IDBTransaction) => void){
             func(this.transaction);
             return this;
+        }
+        abort(): void{
+            this.transaction.abort();
         }
     }
 
