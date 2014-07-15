@@ -15,6 +15,10 @@ declare var IDBObjectStore: {
     prototype: IDBObjectStore;
     new (): IDBObjectStore;
 };
+declare var IDBTransaction: {
+    prototype: IDBTransaction;
+    new (): IDBTransaction;
+};
 
 module Jaid {
     export interface IndexParams {
@@ -59,11 +63,11 @@ module Jaid {
         constructor(name?: string, version?: number, objectStores?: ObjectStoreParams[]);
         constructor(param?: DatabaseParams);
         constructor(param?: any, version?: number, objectStores?: ObjectStoreParams[]){
-            if(typeof param === 'string'){
+            if(typeof param === "string"){
                 this.name = param;
                 this.version = version || this.version;
                 this.objectStores = objectStores || this.objectStores;
-            }else if(typeof param === 'Object' && !!param){
+            }else if(typeof param === "object" && !!param){
                 this.name = param.name || this.name;
                 this.version = param.version || this.version;
                 this.objectStores = param.objectStores || this.objectStores;
@@ -71,7 +75,7 @@ module Jaid {
         }
         open(): Database{
             if(this.connection){
-                throw Error('This database was already opened.');
+                throw Error("This database was already opened.");
             }
             var opener: IDBOpenDBRequest = indexedDB.open(this.name, this.version);
             opener.onsuccess = (event: Event) => {
@@ -258,9 +262,9 @@ module Jaid {
     export interface IConnection {
         db: IDBDatabase;
 
-        select(storeName: string): IReadOnlyTransaction;
-        insert(storeName: string, value: any, key?: any): IReadWriteTransaction;
-        save(storeName: string, value: any, key?: any): IReadWriteTransaction;
+        //select(storeName: string): IRequest;
+        insert(storeName: string, value: any, key?: any): IRequest;
+        save(storeName: string, value: any, key?: any): IRequest;
         readOnlyTransaction(storeNames?: string): IReadOnlyTransaction;
         readOnlyTransaction(storeNames?: string[]): IReadOnlyTransaction;
         readOnlyTransaction(storeNames?: DOMStringList): IReadOnlyTransaction;
@@ -275,20 +279,22 @@ module Jaid {
         constructor(db: IDBDatabase) {
             this.db = db;
         }
-        select(storeName: string): IReadOnlyTransaction{
+        /*
+        select(storeName: string): IRequest{
             var transaction = this.readOnlyTransaction(storeName);
-            transaction.begin();
-            return transaction;
+            var req: IRequest = transaction;
+            return req;
         }
-        insert(storeName: string, value: any, key?: any): IReadWriteTransaction {
+        */
+        insert(storeName: string, value: any, key?: any): IRequest {
             var transaction = this.readWriteTransaction(storeName);
-            transaction.begin().add(storeName, value, key);
-            return transaction;
+            var req: IRequest = transaction.add(storeName, value, key);
+            return req;
         }
-        save(storeName: string, value: any, key?: any): IReadWriteTransaction {
+        save(storeName: string, value: any, key?: any): IRequest {
             var transaction = this.readWriteTransaction(storeName);
-            transaction.begin().put(storeName, value, key);
-            return transaction;
+            var req: IRequest = transaction.put(storeName, value, key);
+            return req;
         }
         readOnlyTransaction(storeNames?: string): IReadOnlyTransaction;
         readOnlyTransaction(storeNames?: string[]): IReadOnlyTransaction;
@@ -317,12 +323,7 @@ module Jaid {
         oncomplete: Function;
         onerror: Function;
         onabort: Function;
-        storeNames: string[];
-        mode: string;
         results: {[id: number]: any};
-
-        begin(storeNames?: string): Transaction;
-        begin(storeNames?: string[]): Transaction;
 
         onComplete(complete: Function): Transaction;
         onError(error: Function): Transaction;
@@ -337,34 +338,23 @@ module Jaid {
         oncomplete: Function = function(){};
         onerror: Function = function(){};
         onabort: Function = function(){};
-        storeNames: any;
-        mode: string;
         results: {[id: number]: any} = {};
-        private requests: IRequest[] = [];
+        private requests: any[] = [];
 
-        constructor(connection: Connection, storeNames?: string);
-        constructor(connection: Connection, storeNames?: string[]);
-        constructor(connection: Connection, storeNames?: DOMStringList);
-        constructor(connection: Connection, storeNames?: any){
+        constructor(connection: Connection, storeNames?: string, mode?: string);
+        constructor(connection: Connection, storeNames?: string[], mode?: string);
+        constructor(connection: Connection, storeNames?: DOMStringList, mode?: string);
+        constructor(connection: Connection, storeNames?: IDBTransaction, mode?: string);
+        constructor(connection: Connection, storeNames?: any, mode?: string){
             this.connection = connection;
-            if(typeof storeNames === "string"){
-                storeNames = [storeNames];
+            if(typeof storeNames === "object" && storeNames instanceof IDBTransaction) {
+                this.transaction = storeNames;
+            }else{
+                if(typeof storeNames === "string"){
+                    storeNames = [storeNames];
+                }
+                this.transaction = this.connection.db.transaction(storeNames, mode);
             }
-            if(storeNames){
-                this.storeNames = storeNames;
-            }
-        }
-        begin(storeNames?: string): T;
-        begin(storeNames?: string[]): T;
-        begin(storeNames?: any): T{
-            if(this.transaction){
-                throw Error('This transaction was already begun.');
-            }
-            this.transaction = this.connection.db.transaction(storeNames||this.storeNames, this.mode);
-            this._setTransactionEvents();
-            return <T><any>this;
-        }
-        _setTransactionEvents(): void{
             this.transaction.oncomplete = () => {
                 this.oncomplete(this.results);
             };
@@ -374,6 +364,12 @@ module Jaid {
             this.transaction.onabort = () => {
                 this.onabort();
             };
+        }
+        _registerRequest(request: IRequest): T{
+            request.id = this.requests.length;
+            request.transaction = <ITransactionBase><any>this;
+            this.requests.push(request);
+            return <T><any>this;
         }
         onComplete(complete: Function): T{
             this.oncomplete = complete;
@@ -387,11 +383,6 @@ module Jaid {
             this.onabort = abort;
             return <T><any>this;
         }
-        _registerRequest(request: IDBRequest): IRequest{
-            var req: IRequest = new Request(this, this.requests.length, request);
-            this.requests.push(req);
-            return req;
-        }
         withTransaction(func: (t: IDBTransaction) => void): T{
             func(this.transaction);
             return <T><any>this;
@@ -403,21 +394,45 @@ module Jaid {
 
     export interface _IReadOnlyTransaction<Transaction> extends _ITransactionBase<Transaction> {
         getByKey(storeName: string, key: any): IRequest;
-//        getByIndex(storeName: string): Transaction;
-        findByKey(storeName: string, range: any, direction: string): IRequest;
-//        findByIndex(storeName: string): Transaction;
+        getByIndex(storeName: string, indexName:string, key: any): IRequest;
+        findByKey(storeName: string, range: any, direction: string): IRequestWithCursor;
+        findByIndex(storeName: string, indexName:string, range: any, direction: string): IRequestWithCursor;
     }
     export interface IReadOnlyTransaction extends _IReadOnlyTransaction<IReadOnlyTransaction> {}
     class ReadOnlyTransaction<T> extends TransactionBase<T> implements _IReadOnlyTransaction<T> {
-        mode: string = "readonly";
 
+        constructor(connection: Connection, storeNames?: string, mode?: string);
+        constructor(connection: Connection, storeNames?: string[], mode?: string);
+        constructor(connection: Connection, storeNames?: DOMStringList, mode?: string);
+        constructor(connection: Connection, storeNames?: IDBTransaction, mode?: string);
+        constructor(connection: Connection, storeNames?: any, mode?: string) {
+            super(connection, storeNames, mode || "readonly");
+        }
         getByKey(storeName: string, key: any): IRequest{
             var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
-            return this._registerRequest(objectStore.get(key));
+            var req: IRequest = new Request(objectStore.get(key));
+            this._registerRequest(req);
+            return req;
         }
-        findByKey(storeName: string, range: any, direction: string): IRequest{
+        getByIndex(storeName: string, indexName:string, key: any): IRequest{
             var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
-            return this._registerRequest(objectStore.openCursor(range, direction));
+            var index: IDBIndex = objectStore.index(indexName);
+            var req: IRequest = new Request(index.get(key));
+            this._registerRequest(req);
+            return req;
+        }
+        findByKey(storeName: string, range: any, direction: string): IRequestWithCursor{
+            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
+            var req: IRequestWithCursor = new RequestWithCursor(objectStore.openCursor(range, direction));
+            this._registerRequest(req);
+            return req;
+        }
+        findByIndex(storeName: string, indexName:string, range: any, direction: string): IRequestWithCursor{
+            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
+            var index: IDBIndex = objectStore.index(indexName);
+            var req: IRequestWithCursor = new RequestWithCursor(index.openCursor(range, direction));
+            this._registerRequest(req);
+            return req;
         }
     }
 
@@ -425,22 +440,30 @@ module Jaid {
      * Read/Write transaction
      */
     export interface _IReadWriteTransaction<ReadWriteTransaction> extends _IReadOnlyTransaction<ReadWriteTransaction> {
-        add(storeName: string, value: any, key?: any): ReadWriteTransaction;
-        put(storeName: string, value: any, key?: any): ReadWriteTransaction;
+        add(storeName: string, value: any, key?: any): IRequest;
+        put(storeName: string, value: any, key?: any): IRequest;
     }
     export interface IReadWriteTransaction extends _IReadWriteTransaction<IReadWriteTransaction> {}
     class ReadWriteTransaction<T> extends ReadOnlyTransaction<T> implements _IReadWriteTransaction<T>{
-        mode: string = "readwrite";
 
-        add(storeName: string, value: any, key?: any): T{
-            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
-            objectStore.add(value, key);
-            return <T><any>this;
+        constructor(connection: Connection, storeNames?: string, mode?: string);
+        constructor(connection: Connection, storeNames?: string[], mode?: string);
+        constructor(connection: Connection, storeNames?: DOMStringList, mode?: string);
+        constructor(connection: Connection, storeNames?: IDBTransaction, mode?: string);
+        constructor(connection: Connection, storeNames?: any, mode?: string) {
+            super(connection, storeNames, mode || "readwrite");
         }
-        put(storeName: string, value: any, key?: any): T{
+        add(storeName: string, value: any, key?: any): IRequest{
             var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
-            objectStore.put(value, key);
-            return <T><any>this;
+            var req: IRequest = new Request(objectStore.add(value, key));
+            this._registerRequest(req);
+            return req;
+        }
+        put(storeName: string, value: any, key?: any): IRequest{
+            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
+            var req: IRequest = new Request(objectStore.put(value, key));
+            this._registerRequest(req);
+            return req;
         }
     }
 
@@ -468,10 +491,9 @@ module Jaid {
     export interface IVersionChangeTransaction extends _IVersionChangeTransaction<IVersionChangeTransaction> {}
     class VersionChangeTransaction<T> extends ReadWriteTransaction<T>{
         constructor(connection: Connection, transaction: IDBTransaction){
-            super(connection);
-            this.transaction = transaction;
-            this._setTransactionEvents();
+            super(connection, transaction);
         }
+
         createObjectStore(objectStore: ObjectStoreParams, indexVersion?: number): IDBObjectStore{
             var db = this.connection.db;
             if(!(objectStore instanceof ObjectStore)){
@@ -487,7 +509,7 @@ module Jaid {
                         (index.dropped && index.dropped <= indexVersion)){
                         return;
                     }
-                    //this.createIndex(idbObjectStore, index);
+                    this.createIndex(idbObjectStore, index);
                 });
             }
             return idbObjectStore;
@@ -554,24 +576,48 @@ module Jaid {
      */
     export interface IRequest {
         id: number;
-        onSuccess(onsuccess: (event: Event) => any): IRequest;
+        transaction: ITransactionBase;
+        onSuccess(onsuccess: (result: any, event: Event) => any): IRequest;
     }
     class Request implements IRequest{
         id: number;
-        private transaction: {results: {[id: number]: any}};
-        private request: IDBRequest;
+        transaction: ITransactionBase;
+        request: IDBRequest;
 
-        constructor(transaction: {results: {[id: number]: any}}, id: number, request: IDBRequest){
-            this.transaction = transaction;
-            this.id = id;
+        constructor(request: IDBRequest){
             this.request = request;
-
-            this.request.onsuccess = (event: Event) => {
+            this.onSuccess((event: Event) => {
                 this.transaction.results[this.id] = event.target;
-            }
+            });
         }
-        onSuccess(onsuccess: (event: Event) => any): Request{
-            this.request.onsuccess = onsuccess;
+        onSuccess(onsuccess: (result: any, event: Event) => any): Request{
+            this.request.onsuccess = (event: Event) => {
+                var result = <any>(<IDBRequest>event.target).result;
+                onsuccess(result, event);
+            };
+            return this;
+        }
+    }
+
+    export interface IRequestWithCursor extends IRequest{
+        stopCursor(): void;
+    }
+    class RequestWithCursor extends Request implements IRequestWithCursor{
+        private continueFlag: boolean = true;
+
+        stopCursor(): void{
+            this.continueFlag = false;
+        }
+        onSuccess(onsuccess: (result: any, event: Event) => any): Request{
+            this.request.onsuccess = (event: Event) => {
+                var result = <IDBCursorWithValue>(<IDBRequest>event.target).result;
+                if(result){
+                    onsuccess(result, event);
+                    if(this.continueFlag){
+                        result.continue();
+                    }
+                }
+            };
             return this;
         }
     }

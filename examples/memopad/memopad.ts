@@ -1,12 +1,14 @@
 /// <reference path="../../src/jaid.ts" />
 /// <reference path="../../d.ts/jquery/jquery.d.ts" />
 /// <reference path="../../d.ts/bootstrap/bootstrap.d.ts" />
-indexedDB.deleteDatabase('memopad');
+//indexedDB.deleteDatabase('memopad');
 
 interface MemoData {
     title?: string;
     body?: string;
     tags?: string[];
+    createdAt?: string;
+    modifiedAt?: string;
 }
 
 //IndexedDBの構造を定義
@@ -18,24 +20,59 @@ var db = new Jaid.Database({
             name: 'memo',
             autoIncrement: true,
             indexes: [
+                {name: 'title', keyPath: 'title', unique: true},
                 {name: 'tags', keyPath: 'tags', multiEntry: true},
-                {name: 'createdAt', keyPath: 'createdAt', since: 2},
-                {name: 'modifiedAt', keyPath: 'modifiedAt', since: 2}
+                {name: 'createdAt', keyPath: 'createdAt'},
+                {name: 'modifiedAt', keyPath: 'modifiedAt'}
             ]
         }
     ]
 });
 
-var dbcon: Jaid.Connection;
+function reloadAllData(){
+    $('#modalBody').text('Loading...');
+    $('#modal').modal({backdrop: false, keyboard: false});
+    var transaction = db.connection.readOnlyTransaction('memo');
+
+    $('#memoNames').empty();
+    var req = transaction.findByIndex('memo', 'createdAt', null, 'prev');
+    req.onSuccess(function (result: IDBCursorWithValue){
+        var data = <MemoData>result.value;
+        var pk = result.primaryKey;
+
+        var title = data.title;
+        if(title.length > 15){
+            title = data.title.slice(0, 15) + '…';
+        }
+        var body = data.body;
+        if(body.length > 15){
+            body = data.body.slice(0, 15) + '…';
+        }
+        $('#memoNames').append(
+            $('<a href="#" class="list-group-item">')
+                .append($('<h4 class="list-group-item-heading">').text(title))
+                .append($('<p class="list-group-item-text">').text(body))
+                .append($('<div>').text(data.tags.join(' ')))
+                .append($('<div>').text(data.createdAt))
+                .data('id', pk)
+        );
+    });
+
+    transaction.onComplete(function(){
+        $('#modal').modal('hide');
+    }).onError(function(){
+        $('#modal').modal('hide');
+    });
+}
 
 $(document).ready(function(){
     $('#modal').modal({backdrop: false, keyboard: false});
     db.open()
-        .success(function(con: Jaid.Connection){
-            dbcon = con;
-            $('#modal').modal('hide');
+        .onSuccess(function(){
+            reloadAllData();
+            //$('#modal').modal('hide');
         })
-        .error(function(error: DOMError, event: Event){
+        .onError(function(error: DOMError, event: Event){
             $('#modalBody').empty()
                 .append($('<p class="lead">').text(error.name))
                 .append($('<p>').text(error.message));
@@ -61,11 +98,23 @@ $(document).ready(function(){
                     data.tags = _tags;
             }
         });
+        data.modifiedAt = new Date().toISOString();
+        if(!id){
+            data.createdAt = data.modifiedAt;
+        }
 
-        console.log(id, data);
-        dbcon.save('memo', data, id);
-
+        console.log(data);
+        var transaction = db.connection.readWriteTransaction('memo');
+        var req: Jaid.IRequest = transaction.put('memo', data, id);
+        req.onSuccess(function(result: any, event: Event){
+            $('#memoId').val(result);
+        });
+        transaction.onComplete(function(event: Event){
+            reloadAllData();
+        });
         event.preventDefault();
         return false;
     });
+
+    $('#memoNames').append(
 });
