@@ -6,7 +6,7 @@
 * @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
 */
 //var indexedDB = window.indexedDB;
-"strict mode";
+"use strict";
 var __extends = this.__extends || function (d, b) {
     for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p];
     function __() { this.constructor = d; }
@@ -52,7 +52,7 @@ var Jaid;
                 var req = event.target;
                 var db = req.result;
                 _this.connection = new Connection(db);
-                var transaction = new VersionChangeTransaction(_this.connection, req.transaction);
+                var transaction = new _VersionChangeTransaction(_this.connection, req.transaction);
 
                 if (event.oldVersion == 0) {
                     //initialize
@@ -219,17 +219,17 @@ var Jaid;
             this.db = db;
         }
         Connection.prototype.select = function (storeName) {
-            var transaction = new ReadOnlyTransaction(this, storeName);
-
+            var transaction = new _ReadOnlyTransaction(this, storeName);
+            transaction.begin();
             return transaction;
         };
         Connection.prototype.insert = function (storeName, value, key) {
-            var transaction = new ReadWriteTransaction(this, storeName);
+            var transaction = new _ReadWriteTransaction(this, storeName);
             transaction.begin().add(storeName, value, key);
             return transaction;
         };
         Connection.prototype.save = function (storeName, value, key) {
-            var transaction = new ReadWriteTransaction(this, storeName);
+            var transaction = new _ReadWriteTransaction(this, storeName);
             transaction.begin().put(storeName, value, key);
             return transaction;
         };
@@ -237,9 +237,9 @@ var Jaid;
         Connection.prototype.transaction = function (storeNames, mode) {
             switch (mode) {
                 case "readonly":
-                    return new ReadOnlyTransaction(this, storeNames);
+                    return new _ReadOnlyTransaction(this, storeNames);
                 case "readwrite":
-                    return new ReadWriteTransaction(this, storeNames);
+                    return new _ReadWriteTransaction(this, storeNames);
                 default:
                     throw Error("parameter mode is \"readonly\" or \"readwrite\"");
             }
@@ -258,8 +258,8 @@ var Jaid;
     /**
     * transaction
     */
-    var Transaction = (function () {
-        function Transaction(connection, storeNames) {
+    var _TransactionBase = (function () {
+        function _TransactionBase(connection, storeNames) {
             this.oncomplete = function () {
             };
             this.onerror = function () {
@@ -274,7 +274,7 @@ var Jaid;
                 this.storeNames = storeNames;
             }
         }
-        Transaction.prototype.begin = function (storeNames) {
+        _TransactionBase.prototype.begin = function (storeNames) {
             if (this.transaction) {
                 throw Error('This transaction was already begun.');
             }
@@ -282,7 +282,7 @@ var Jaid;
             this._setTransactionEvents();
             return this;
         };
-        Transaction.prototype._setTransactionEvents = function () {
+        _TransactionBase.prototype._setTransactionEvents = function () {
             var _this = this;
             this.transaction.oncomplete = function () {
                 _this.oncomplete();
@@ -294,73 +294,73 @@ var Jaid;
                 _this.onabort();
             };
         };
-        Transaction.prototype.onComplete = function (complete) {
+        _TransactionBase.prototype.onComplete = function (complete) {
             this.oncomplete = complete;
             return this;
         };
-        Transaction.prototype.onError = function (error) {
+        _TransactionBase.prototype.onError = function (error) {
             this.onerror = error;
             return this;
         };
-        Transaction.prototype.onAbort = function (abort) {
+        _TransactionBase.prototype.onAbort = function (abort) {
             this.onabort = abort;
             return this;
         };
-        Transaction.prototype.withTransaction = function (func) {
+        _TransactionBase.prototype.withTransaction = function (func) {
             func(this.transaction);
             return this;
         };
-        Transaction.prototype.abort = function () {
+        _TransactionBase.prototype.abort = function () {
             this.transaction.abort();
         };
-        return Transaction;
+        return _TransactionBase;
     })();
-    Jaid.Transaction = Transaction;
+    Jaid._TransactionBase = _TransactionBase;
 
-    var ReadOnlyTransaction = (function (_super) {
-        __extends(ReadOnlyTransaction, _super);
-        function ReadOnlyTransaction() {
+    var _ReadOnlyTransaction = (function (_super) {
+        __extends(_ReadOnlyTransaction, _super);
+        function _ReadOnlyTransaction() {
             _super.apply(this, arguments);
             this.mode = "readonly";
         }
-        return ReadOnlyTransaction;
-    })(Transaction);
-    Jaid.ReadOnlyTransaction = ReadOnlyTransaction;
+        return _ReadOnlyTransaction;
+    })(_TransactionBase);
+    Jaid._ReadOnlyTransaction = _ReadOnlyTransaction;
 
     /**
     * Read/Write transaction
     */
-    var ReadWriteTransaction = (function (_super) {
-        __extends(ReadWriteTransaction, _super);
-        function ReadWriteTransaction() {
+    var _ReadWriteTransaction = (function (_super) {
+        __extends(_ReadWriteTransaction, _super);
+        function _ReadWriteTransaction() {
             _super.apply(this, arguments);
             this.mode = "readwrite";
         }
-        ReadWriteTransaction.prototype.add = function (storeName, value, key) {
+        _ReadWriteTransaction.prototype.add = function (storeName, value, key) {
             var objectStore = this.transaction.objectStore(storeName);
             objectStore.add(value, key);
             return this;
         };
-        ReadWriteTransaction.prototype.put = function (storeName, value, key) {
+        _ReadWriteTransaction.prototype.put = function (storeName, value, key) {
             var objectStore = this.transaction.objectStore(storeName);
             objectStore.put(value, key);
             return this;
         };
-        return ReadWriteTransaction;
-    })(ReadOnlyTransaction);
-    Jaid.ReadWriteTransaction = ReadWriteTransaction;
+        return _ReadWriteTransaction;
+    })(_ReadOnlyTransaction);
+    Jaid._ReadWriteTransaction = _ReadWriteTransaction;
 
     /**
     * Read/Write transaction
     */
-    var VersionChangeTransaction = (function (_super) {
-        __extends(VersionChangeTransaction, _super);
-        function VersionChangeTransaction(connection, transaction) {
+    var _VersionChangeTransaction = (function (_super) {
+        __extends(_VersionChangeTransaction, _super);
+        function _VersionChangeTransaction(connection, transaction) {
             _super.call(this, connection);
             this.transaction = transaction;
             this._setTransactionEvents();
         }
-        VersionChangeTransaction.prototype.createObjectStore = function (objectStore, indexVersion) {
+        _VersionChangeTransaction.prototype.createObjectStore = function (objectStore, indexVersion) {
             var db = this.connection.db;
             if (!(objectStore instanceof ObjectStore)) {
                 objectStore = new ObjectStore(objectStore);
@@ -380,7 +380,7 @@ var Jaid;
             return idbObjectStore;
         };
 
-        VersionChangeTransaction.prototype.createIndex = function (objectStore, index) {
+        _VersionChangeTransaction.prototype.createIndex = function (objectStore, index) {
             var idbObjectStore;
             if (typeof objectStore === "function" && objectStore instanceof IDBObjectStore) {
                 idbObjectStore = objectStore;
@@ -395,7 +395,7 @@ var Jaid;
             return idbObjectStore.createIndex(index.name, index.keyPath, { unique: index.unique || false, multiEntry: index.multiEntry || false });
         };
 
-        VersionChangeTransaction.prototype.dropObjectStore = function (objectStore) {
+        _VersionChangeTransaction.prototype.dropObjectStore = function (objectStore) {
             var db = this.connection.db;
             var name;
             if (typeof objectStore === "string") {
@@ -406,7 +406,7 @@ var Jaid;
             db.deleteObjectStore(name);
         };
 
-        VersionChangeTransaction.prototype.dropIndex = function (objectStore, index) {
+        _VersionChangeTransaction.prototype.dropIndex = function (objectStore, index) {
             var idbObjectStore;
             var indexName;
             if (typeof objectStore === "function" && objectStore instanceof IDBObjectStore) {
@@ -422,8 +422,8 @@ var Jaid;
             }
             idbObjectStore.deleteIndex(indexName);
         };
-        return VersionChangeTransaction;
-    })(ReadWriteTransaction);
-    Jaid.VersionChangeTransaction = VersionChangeTransaction;
+        return _VersionChangeTransaction;
+    })(_ReadWriteTransaction);
+    Jaid._VersionChangeTransaction = _VersionChangeTransaction;
 })(Jaid || (Jaid = {}));
 //# sourceMappingURL=jaid.js.map

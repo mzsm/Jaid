@@ -6,7 +6,7 @@
  * @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
  */
 //var indexedDB = window.indexedDB;
-"strict mode";
+"use strict";
 
 interface DOMError {
     message?: string
@@ -90,7 +90,7 @@ module Jaid {
                 var req = <IDBOpenDBRequest>event.target;
                 var db = <IDBDatabase>req.result;
                 this.connection = new Connection(db);
-                var transaction = new VersionChangeTransaction(this.connection, req.transaction);
+                var transaction = new _VersionChangeTransaction<VersionChangeTransaction>(this.connection, req.transaction);
 
                 if(event.oldVersion == 0){
                     //initialize
@@ -262,28 +262,28 @@ module Jaid {
             this.db = db;
         }
         select(storeName: string): ReadOnlyTransaction{
-            var transaction = new ReadOnlyTransaction(this, storeName);
-
+            var transaction = new _ReadOnlyTransaction<ReadOnlyTransaction>(this, storeName);
+            transaction.begin();
             return transaction;
         }
         insert(storeName: string, value: any, key?: any): ReadWriteTransaction {
-            var transaction: ReadWriteTransaction = new ReadWriteTransaction(this, storeName);
+            var transaction: ReadWriteTransaction = new _ReadWriteTransaction<ReadWriteTransaction>(this, storeName);
             transaction.begin().add(storeName, value, key);
             return transaction;
         }
         save(storeName: string, value: any, key?: any): ReadWriteTransaction {
-            var transaction: ReadWriteTransaction = new ReadWriteTransaction(this, storeName);
+            var transaction: ReadWriteTransaction = new _ReadWriteTransaction<ReadWriteTransaction>(this, storeName);
             transaction.begin().put(storeName, value, key);
             return transaction;
         }
-        transaction(storeNames: string, mode: string): Transaction;
-        transaction(storeNames: string[], mode: string): Transaction;
-        transaction(storeNames: any, mode: string): Transaction{
+        transaction(storeNames: string, mode: string): any;
+        transaction(storeNames: string[], mode: string): any;
+        transaction(storeNames: any, mode: string): any{
             switch (mode){
                 case "readonly":
-                    return new ReadOnlyTransaction(this, storeNames);
+                    return new _ReadOnlyTransaction<ReadOnlyTransaction>(this, storeNames);
                 case "readwrite":
-                    return new ReadWriteTransaction(this, storeNames);
+                    return new _ReadWriteTransaction<ReadWriteTransaction>(this, storeNames);
                 default:
                     throw Error("parameter mode is \"readonly\" or \"readwrite\"");
             }
@@ -301,7 +301,7 @@ module Jaid {
     /**
      * transaction
      */
-    export class Transaction {
+    export class _TransactionBase<Transaction> {
         connection: Connection;
         transaction: IDBTransaction;
         oncomplete: Function = function(){};
@@ -321,15 +321,15 @@ module Jaid {
                 this.storeNames = storeNames;
             }
         }
-        begin(storeNames?: string): any;
-        begin(storeNames?: string[]): any;
-        begin(storeNames?: any): any{
+        begin(storeNames?: string): Transaction;
+        begin(storeNames?: string[]): Transaction;
+        begin(storeNames?: any): Transaction{
             if(this.transaction){
                 throw Error('This transaction was already begun.');
             }
             this.transaction = this.connection.db.transaction(storeNames, this.mode);
             this._setTransactionEvents();
-            return this;
+            return <Transaction><any>this;
         }
         _setTransactionEvents(): void{
             this.transaction.oncomplete = () => {
@@ -342,52 +342,55 @@ module Jaid {
                 this.onabort();
             };
         }
-        onComplete(complete: Function): any{
+        onComplete(complete: Function): Transaction{
             this.oncomplete = complete;
-            return this;
+            return <Transaction><any>this;
         }
-        onError(error: Function): any{
+        onError(error: Function): Transaction{
             this.onerror = error;
-            return this;
+            return <Transaction><any>this;
         }
-        onAbort(abort: Function): any{
+        onAbort(abort: Function): Transaction{
             this.onabort = abort;
-            return this;
+            return <Transaction><any>this;
         }
-        withTransaction(func: (t: IDBTransaction) => void){
+        withTransaction(func: (t: IDBTransaction) => void): Transaction{
             func(this.transaction);
-            return this;
+            return <Transaction><any>this;
         }
         abort(): void{
             this.transaction.abort();
         }
     }
+    export interface TransactionBase extends _TransactionBase<TransactionBase>{}
 
-    export class ReadOnlyTransaction extends Transaction{
+    export class _ReadOnlyTransaction<Transaction> extends _TransactionBase<Transaction>{
         mode: string = "readonly";
     }
+    export interface ReadOnlyTransaction extends _ReadOnlyTransaction<ReadOnlyTransaction>{}
 
     /**
      * Read/Write transaction
      */
-    export class ReadWriteTransaction extends ReadOnlyTransaction{
+    export class _ReadWriteTransaction<Transaction> extends _ReadOnlyTransaction<Transaction>{
         mode: string = "readwrite";
         add(storeName: string, value: any, key?: any): Transaction{
             var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
             objectStore.add(value, key);
-            return this;
+            return <Transaction><any>this;
         }
         put(storeName: string, value: any, key?: any): Transaction{
             var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
             objectStore.put(value, key);
-            return this;
+            return <Transaction><any>this;
         }
     }
+    export interface ReadWriteTransaction extends _ReadWriteTransaction<ReadWriteTransaction>{}
 
     /**
      * Read/Write transaction
      */
-    export class VersionChangeTransaction extends ReadWriteTransaction{
+    export class _VersionChangeTransaction<Transaction> extends _ReadWriteTransaction<Transaction>{
         constructor(connection: Connection, transaction: IDBTransaction){
             super(connection);
             this.transaction = transaction;
@@ -469,4 +472,5 @@ module Jaid {
             idbObjectStore.deleteIndex(indexName);
         }
     }
+    export interface VersionChangeTransaction extends _VersionChangeTransaction<VersionChangeTransaction>{}
 }
