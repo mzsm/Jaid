@@ -7,8 +7,8 @@ interface MemoData {
     title?: string;
     body?: string;
     tags?: string[];
-    createdAt?: string;
-    modifiedAt?: string;
+    createdAt?: Date;
+    modifiedAt?: Date;
 }
 
 //IndexedDBの構造を定義
@@ -41,20 +41,22 @@ function reloadAllData(){
         var pk = result.primaryKey;
 
         var title = data.title;
+        /*
         if(title.length > 15){
             title = data.title.slice(0, 15) + '…';
         }
-        var body = data.body;
+        */
+        var body = data.body || '';
         if(body.length > 15){
             body = data.body.slice(0, 15) + '…';
         }
         $('#memoNames').append(
             $('<a href="#" class="list-group-item showonmousewrapper">')
-                .append($('<button class="deleteMemo btn pull-right btn-xs showonmouse"><span class="glyphicon glyphicon-remove"></span></button>'))
+                .append($('<button type="button" class="deleteMemo btn pull-right btn-xs showonmouse"><span class="glyphicon glyphicon-remove"></span></button>'))
                 .append($('<h4 class="list-group-item-heading">').text(title))
                 .append($('<p class="list-group-item-text">').text(body))
-                .append($('<div>').text(data.tags.join(' ')))
-                .append($('<div>').text(data.createdAt))
+                .append($('<div>').text('Tags: ' + (data.tags||['']).join(' ')))
+                .append($('<div>').text('Created at:' + data.createdAt.toLocaleString()))
                 .data('id', pk)
         );
     });
@@ -91,9 +93,14 @@ $(document).ready(function(){
         });
 
     $('#inputForm').on('submit', function(event){
+        $('#alerts').empty();
+
         var id: number;
         var data: MemoData = {};
         $(this).serializeArray().forEach(function(val: {name:string; value:string}){
+            if(val.value.length == 0){
+                return;
+            }
             switch(val.name){
                 case 'id':
                     id = parseInt(val.value);
@@ -110,9 +117,23 @@ $(document).ready(function(){
                     data.tags = _tags;
             }
         });
-        data.modifiedAt = new Date().toISOString();
+
+        data.modifiedAt = new Date();
         if(!id){
             data.createdAt = data.modifiedAt;
+        }
+
+        if(!data.title || data.title.length == 0){
+            if(!id){
+                data.title = 'no title - ' + new Date().toLocaleString();
+            }else{
+                var alert = $('<div class="alert alert-warning">')
+                    .append($('<button type="button" class="close" data-dismiss="alert"><span aria-hidden="true">&times;</span></button>'))
+                    .append($('<p>').text('Please input title'));
+                $('#alerts').append(alert);
+                event.preventDefault();
+                return;
+            }
         }
 
         var transaction = db.connection.readWriteTransaction('memo');
@@ -121,10 +142,11 @@ $(document).ready(function(){
             $('#memoId').val(result);
         });
         req.onError(function(error: DOMError, event: Event){
-            $('#modalBody').empty()
+            var alert = $('<div class="alert alert-danger">')
+                .append($('<button type="button" class="close" data-dismiss="alert"><span aria-hidden="true">&times;</span></button>'))
                 .append($('<p class="lead">').text(error.name))
                 .append($('<p>').text(error.message));
-            $('#modal').modal({backdrop: true, keyboard: true});
+            $('#alerts').append(alert);
         });
         transaction.onComplete(function(event: Event){
             reloadAllData();
