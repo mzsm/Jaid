@@ -442,6 +442,7 @@ module Jaid {
     export interface _IReadWriteTransaction<ReadWriteTransaction> extends _IReadOnlyTransaction<ReadWriteTransaction> {
         add(storeName: string, value: any, key?: any): IRequest;
         put(storeName: string, value: any, key?: any): IRequest;
+        deleteByKey(storeName: string, key: any): IRequest;
     }
     export interface IReadWriteTransaction extends _IReadWriteTransaction<IReadWriteTransaction> {}
     class ReadWriteTransaction<T> extends ReadOnlyTransaction<T> implements _IReadWriteTransaction<T>{
@@ -462,6 +463,12 @@ module Jaid {
         put(storeName: string, value: any, key?: any): IRequest{
             var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
             var req: IRequest = new Request(objectStore.put(value, key));
+            this._registerRequest(req);
+            return req;
+        }
+        deleteByKey(storeName: string, key: any): IRequest{
+            var objectStore: IDBObjectStore = this.transaction.objectStore(storeName);
+            var req: IRequest = new Request(objectStore.delete(key));
             this._registerRequest(req);
             return req;
         }
@@ -578,6 +585,7 @@ module Jaid {
         id: number;
         transaction: ITransactionBase;
         onSuccess(onsuccess: (result: any, event: Event) => any): IRequest;
+        onError(onerror: (error: DOMError, event: Event) => any): IRequest;
     }
     class Request implements IRequest{
         id: number;
@@ -586,14 +594,24 @@ module Jaid {
 
         constructor(request: IDBRequest){
             this.request = request;
-            this.onSuccess((event: Event) => {
+            this.onSuccess((result: any, event: Event) => {
                 this.transaction.results[this.id] = event.target;
+            });
+            this.onError((error: DOMError, event: Event) => {
+                this.transaction.abort();
             });
         }
         onSuccess(onsuccess: (result: any, event: Event) => any): Request{
             this.request.onsuccess = (event: Event) => {
                 var result = <any>(<IDBRequest>event.target).result;
                 onsuccess(result, event);
+            };
+            return this;
+        }
+        onError(onerror: (error: DOMError, event: Event) => any): Request{
+            this.request.onerror = (event: Event) => {
+                var error = <DOMError>(<IDBRequest>event.target).error;
+                onerror(error, event);
             };
             return this;
         }

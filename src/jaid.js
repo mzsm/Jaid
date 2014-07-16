@@ -361,6 +361,12 @@ var Jaid;
             this._registerRequest(req);
             return req;
         };
+        ReadWriteTransaction.prototype.deleteByKey = function (storeName, key) {
+            var objectStore = this.transaction.objectStore(storeName);
+            var req = new Request(objectStore.delete(key));
+            this._registerRequest(req);
+            return req;
+        };
         return ReadWriteTransaction;
     })(ReadOnlyTransaction);
 
@@ -442,14 +448,24 @@ var Jaid;
         function Request(request) {
             var _this = this;
             this.request = request;
-            this.onSuccess(function (event) {
+            this.onSuccess(function (result, event) {
                 _this.transaction.results[_this.id] = event.target;
+            });
+            this.onError(function (error, event) {
+                _this.transaction.abort();
             });
         }
         Request.prototype.onSuccess = function (onsuccess) {
             this.request.onsuccess = function (event) {
                 var result = event.target.result;
                 onsuccess(result, event);
+            };
+            return this;
+        };
+        Request.prototype.onError = function (onerror) {
+            this.request.onerror = function (event) {
+                var error = event.target.error;
+                onerror(error, event);
             };
             return this;
         };

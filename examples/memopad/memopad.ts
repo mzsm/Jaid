@@ -49,7 +49,8 @@ function reloadAllData(){
             body = data.body.slice(0, 15) + '…';
         }
         $('#memoNames').append(
-            $('<a href="#" class="list-group-item">')
+            $('<a href="#" class="list-group-item showonmousewrapper">')
+                .append($('<button class="deleteMemo btn pull-right btn-xs showonmouse"><span class="glyphicon glyphicon-remove"></span></button>'))
                 .append($('<h4 class="list-group-item-heading">').text(title))
                 .append($('<p class="list-group-item-text">').text(body))
                 .append($('<div>').text(data.tags.join(' ')))
@@ -64,6 +65,17 @@ function reloadAllData(){
         $('#modal').modal('hide');
     });
 }
+
+function deleteData(id: number) {
+    var transaction = db.connection.readWriteTransaction('memo');
+
+    transaction.deleteByKey('memo', id);
+
+    transaction.onComplete(function(){
+        reloadAllData();
+    });
+}
+
 
 $(document).ready(function(){
     $('#modal').modal({backdrop: false, keyboard: false});
@@ -103,18 +115,35 @@ $(document).ready(function(){
             data.createdAt = data.modifiedAt;
         }
 
-        console.log(data);
         var transaction = db.connection.readWriteTransaction('memo');
         var req: Jaid.IRequest = transaction.put('memo', data, id);
         req.onSuccess(function(result: any, event: Event){
             $('#memoId').val(result);
+        });
+        req.onError(function(error: DOMError, event: Event){
+            $('#modalBody').empty()
+                .append($('<p class="lead">').text(error.name))
+                .append($('<p>').text(error.message));
+            $('#modal').modal({backdrop: true, keyboard: true});
         });
         transaction.onComplete(function(event: Event){
             reloadAllData();
         });
         event.preventDefault();
         return false;
+    }).on('reset', function(){
+        $('#memoId').val('');
     });
 
-    $('#memoNames').append(
+    $('#memoNames')
+        .on('click', 'a', function(event: JQueryEventObject){
+            //console.log('click a');
+            //console.log($(this).closest('.list-group-item').data('id'));
+            event.preventDefault();
+        })
+        .on('click', '.deleteMemo', function(event: JQueryEventObject){
+            deleteData(parseInt($(this).closest('.list-group-item').data('id')));
+            event.preventDefault();
+            event.stopPropagation();
+        });
 });

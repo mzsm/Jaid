@@ -40,13 +40,23 @@ function reloadAllData() {
         if (body.length > 15) {
             body = data.body.slice(0, 15) + '…';
         }
-        $('#memoNames').append($('<a href="#" class="list-group-item">').append($('<h4 class="list-group-item-heading">').text(title)).append($('<p class="list-group-item-text">').text(body)).append($('<div>').text(data.tags.join(' '))).append($('<div>').text(data.createdAt)).data('id', pk));
+        $('#memoNames').append($('<a href="#" class="list-group-item showonmousewrapper">').append($('<button class="deleteMemo btn pull-right btn-xs showonmouse"><span class="glyphicon glyphicon-remove"></span></button>')).append($('<h4 class="list-group-item-heading">').text(title)).append($('<p class="list-group-item-text">').text(body)).append($('<div>').text(data.tags.join(' '))).append($('<div>').text(data.createdAt)).data('id', pk));
     });
 
     transaction.onComplete(function () {
         $('#modal').modal('hide');
     }).onError(function () {
         $('#modal').modal('hide');
+    });
+}
+
+function deleteData(id) {
+    var transaction = db.connection.readWriteTransaction('memo');
+
+    transaction.deleteByKey('memo', id);
+
+    transaction.onComplete(function () {
+        reloadAllData();
     });
 }
 
@@ -86,17 +96,32 @@ $(document).ready(function () {
             data.createdAt = data.modifiedAt;
         }
 
-        console.log(data);
         var transaction = db.connection.readWriteTransaction('memo');
         var req = transaction.put('memo', data, id);
         req.onSuccess(function (result, event) {
             $('#memoId').val(result);
+        });
+        req.onError(function (error, event) {
+            $('#modalBody').empty().append($('<p class="lead">').text(error.name)).append($('<p>').text(error.message));
+            $('#modal').modal({ backdrop: true, keyboard: true });
         });
         transaction.onComplete(function (event) {
             reloadAllData();
         });
         event.preventDefault();
         return false;
+    }).on('reset', function () {
+        $('#memoId').val('');
+    });
+
+    $('#memoNames').on('click', 'a', function (event) {
+        //console.log('click a');
+        //console.log($(this).closest('.list-group-item').data('id'));
+        event.preventDefault();
+    }).on('click', '.deleteMemo', function (event) {
+        deleteData(parseInt($(this).closest('.list-group-item').data('id')));
+        event.preventDefault();
+        event.stopPropagation();
     });
 });
 //# sourceMappingURL=memopad.js.map

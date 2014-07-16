@@ -23,6 +23,15 @@
             0% {transform: rotate(0deg);}
             100% {transform: rotate(360deg);}
         }
+        .showonmouse {
+            opacity: 0.1;
+        }
+        .showonmousewrapper:hover .showonmouse {
+            opacity: 0.5;
+        }
+        .showonmousewrapper:hover .showonmouse:hover {
+            opacity: 1;
+        }
     </style>
     <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
     <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/js/bootstrap.min.js"></script>
@@ -39,15 +48,18 @@
             </div>
         </nav>
         <div class="row">
+            <form class="form" id="inputForm">
             <div class="col-xs-4">
                 <div class="panel panel-default">
-                    <div class="panel-heading"><h3 class="panel-title">Memo list</h3></div>
+                    <div class="panel-heading clearfix">
+                        <button type="reset" class="btn btn-primary pull-right"><span class="glyphicon glyphicon-plus"></span></button>
+                        <h3 class="panel-title">Memo list</h3>
+                    </div>
                     <div class="list-group" id="memoNames"></div>
 
                 </div>
             </div>
             <div class="col-xs-8">
-                <form class="form" id="inputForm">
                     <input type="hidden" name="memoId" id="memoId">
                     <div class="form-group">
                         <label for="title">Title</label>
@@ -64,8 +76,8 @@
                         <p class="help-block">&quot;,&quot;(comma) or &quot; &quot;(space) separated.</p>
                     </div>
                     <button type="submit" class="btn btn-primary">Save</button>
-                </form>
             </div>
+            </form>
         </div>
     </div>
     <div class="modal" tabindex="-1" id="modal">
