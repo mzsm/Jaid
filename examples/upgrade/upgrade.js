@@ -4,6 +4,12 @@
 "use strict";
 var upgradeHistoryFunc2 = function (transaction) {
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.2'));
+    for (var i = 0; i < 10000; i++) {
+        var result = transaction.put('store2_2', { message: 'hogeeeeeeeeeeeeeeeee', updated: new Date() });
+        result.onSuccess(function (result, event) {
+            console.log(result, event);
+        });
+    }
     transaction.put('store1', { message: 'set version2', updated: new Date() });
 };
 var upgradeHistoryFunc3000 = function (transaction) {
@@ -17,7 +23,7 @@ var createdFunc1 = function (transaction) {
 };
 var createdFunc2 = function (transaction) {
     $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.2'));
-    transaction.put('store1', { message: 'create DB version3' });
+    transaction.put('store1', { message: 'create DB version2' });
 };
 var createdFunc3 = function (transaction) {
     $('#alerts').append($('<div class="alert alert-success">').text('Create database on ver.3000'));
@@ -56,6 +62,15 @@ schemaTable[2] = {
                 { name: 'index2_2', keyPath: 'spam' }
             ],
             created: 2
+        },
+        {
+            name: 'store2_2',
+            autoIncrement: true,
+            indexes: [
+                { name: 'index2_1', keyPath: 'egg' },
+                { name: 'index2_2', keyPath: 'spam' }
+            ],
+            created: 2
         }
     ],
     history: {
@@ -70,7 +85,7 @@ schemaTable[3000] = {
             autoIncrement: true,
             indexes: [
                 { name: 'index1_1', keyPath: 'foo' },
-                { name: 'index1_2', keyPath: 'bar', created: 2, removed: 3000 },
+                { name: 'index1_2', keyPath: 'bar', created: 2, dropped: 3000 },
                 { name: 'index1_3', keyPath: 'baz', created: 3000 }
             ]
         },
@@ -78,11 +93,21 @@ schemaTable[3000] = {
             name: 'store2',
             autoIncrement: true,
             indexes: [
-                { name: 'index2_1', keyPath: 'egg', removed: 3000 },
+                { name: 'index2_1', keyPath: 'egg', dropped: 3000 },
                 { name: 'index2_2', keyPath: 'spam' },
                 { name: 'index2_3', keyPath: 'spamspamspam', created: 3000 }
             ],
             created: 2
+        },
+        {
+            name: 'store2_2',
+            autoIncrement: true,
+            indexes: [
+                { name: 'index2_1', keyPath: 'egg' },
+                { name: 'index2_2', keyPath: 'spam' }
+            ],
+            created: 2,
+            dropped: 3000
         },
         {
             name: 'store3',
@@ -125,12 +150,12 @@ function checkVersion(db) {
         var storeName = objectStoreNames[i];
         var li = $('<li>').text(storeName);
 
-        var transaction = db.connection.readOnlyTransaction(objectStoreNames).begin();
+        var transaction = db.connection.readOnlyTransaction(objectStoreNames);
 
         var req = transaction.findByKey('store1', null, 'next');
 
         transaction.onComplete(function (result) {
-            console.log(result);
+            //console.log(result);
         });
 
         $showSchema.append(li);

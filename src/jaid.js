@@ -15,8 +15,11 @@ var __extends = this.__extends || function (d, b) {
 };
 var Jaid;
 (function (Jaid) {
+    /**
+    *
+    */
     var Database = (function () {
-        function Database(param, version, objectStores) {
+        function Database(param, version, objectStores, migrationHistory) {
             this.version = 1;
             this.objectStores = [];
             this.migrationHistory = {};
@@ -24,143 +27,48 @@ var Jaid;
                 this.name = param;
                 this.version = version || this.version;
                 this.objectStores = objectStores || this.objectStores;
+                this.migrationHistory = migrationHistory || this.migrationHistory;
             } else if (typeof param === "object" && !!param) {
                 this.name = param.name || this.name;
                 this.version = param.version || this.version;
                 this.objectStores = param.objectStores || this.objectStores;
+                this.migrationHistory = param.migrationHistory || this.migrationHistory;
             }
         }
         Database.prototype.open = function () {
-            var _this = this;
-            if (this.connection) {
+            if (this.target) {
                 throw Error("This database was already opened.");
             }
-            var opener = indexedDB.open(this.name, this.version);
-            opener.onsuccess = function (event) {
-                var db = event.target.result;
-                _this.connection = new Connection(db);
-                _this.onsuccess(event);
-            };
-            opener.onerror = function (event) {
-                var error = opener.error;
-                _this.onerror(error, event);
-            };
-            opener.onblocked = function (event) {
-                _this.onblocked(event);
-            };
-            opener.onupgradeneeded = function (event) {
-                var req = event.target;
-                var db = req.result;
-                _this.connection = new Connection(db);
-                var transaction = new VersionChangeTransaction(_this.connection, req.transaction);
-
-                if (event.oldVersion == 0) {
-                    //initialize
-                    _this.objectStores.forEach(function (params) {
-                        // Exclude "already dropped" or "not yet created" indexes.
-                        if ((params.created && params.created > event.newVersion) || (params.dropped && params.dropped <= event.newVersion)) {
-                            return;
-                        }
-                        transaction.createObjectStore(params, event.newVersion);
-                    });
-                    if (_this.oncreated) {
-                        _this.oncreated(transaction, event);
-                    }
-                } else {
-                    //migration
-                    var createdObjectStores = {};
-                    var droppedObjectStores = {};
-                    var createdIndexes = {};
-                    var droppedIndexes = {};
-                    _this.objectStores.forEach(function (params) {
-                        if (params.created) {
-                            if (!(params.created in createdObjectStores)) {
-                                createdObjectStores[params.created] = [];
-                            }
-                            createdObjectStores[params.created].push(params);
-                        }
-                        if (params.dropped) {
-                            if (!(params.dropped in droppedObjectStores)) {
-                                droppedObjectStores[params.dropped] = [];
-                            }
-                            droppedObjectStores[params.dropped].push(params);
-                        }
-                        params.indexes.forEach(function (p) {
-                            if (p.created && (!params.created || p.created > params.created)) {
-                                if (!(p.created in createdIndexes)) {
-                                    createdIndexes[p.created] = [];
-                                }
-                                createdIndexes[p.created].push({ storeName: params.name, index: p });
-                            }
-                            if (p.dropped && (!params.dropped || p.dropped < params.dropped)) {
-                                if (!(p.dropped in droppedIndexes)) {
-                                    droppedIndexes[p.dropped] = [];
-                                }
-                                droppedIndexes[p.created].push({ storeName: params.name, index: p });
-                            }
-                        });
-                    });
-                    var versions = Object.keys(createdObjectStores).concat(Object.keys(createdIndexes)).concat(Object.keys(droppedObjectStores)).concat(Object.keys(droppedIndexes)).concat(Object.keys(_this.migrationHistory)).map(function (v) {
-                        return parseInt(v);
-                    });
-                    versions.filter(function (v, i) {
-                        return (v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i);
-                    }, versions).sort().forEach(function (version) {
-                        // Add new objectStore and Index.
-                        if (version in createdObjectStores) {
-                            createdObjectStores[version].forEach(function (val) {
-                                transaction.createObjectStore(val, version);
-                            });
-                        }
-                        if (version in createdIndexes) {
-                            createdIndexes[version].forEach(function (val) {
-                                transaction.createIndex(val.storeName, val.index);
-                            });
-                        }
-
-                        // Custom operation
-                        if (version in _this.migrationHistory) {
-                            _this.migrationHistory[version](transaction, event);
-                        }
-
-                        // Remove deprecated objectStore and Index.
-                        if (version in droppedObjectStores) {
-                            droppedObjectStores[version].forEach(function (val) {
-                                transaction.dropObjectStore(val);
-                            });
-                        }
-                        if (version in createdIndexes) {
-                            createdIndexes[version].forEach(function (val) {
-                                transaction.dropIndex(val.storeName, val.index);
-                            });
-                        }
-                    });
-                }
-            };
-            return this;
+            var opener = new OpenDBRequest(this, indexedDB.open(this.name, this.version));
+            return opener;
         };
-        Database.prototype.onSuccess = function (onsuccess) {
-            this.onsuccess = onsuccess;
-            return this;
-        };
-        Database.prototype.onError = function (onerror) {
-            this.onerror = onerror;
-            return this;
-        };
-        Database.prototype.onBlocked = function (onblocked) {
-            this.onblocked = onblocked;
-            return this;
-        };
-        Database.prototype.onCreated = function (oncreated) {
-            this.oncreated = oncreated;
-            return this;
-        };
-        Database.prototype.onMigration = function (migrationHistory) {
-            this.migrationHistory = migrationHistory;
-            return this;
+        Database.prototype.close = function () {
+            if (!this.target) {
+                throw Error("This database is not yes opened.");
+            }
+            this.target.close();
+            this.target = null;
         };
         Database.prototype.delete = function () {
             indexedDB.deleteDatabase(this.name);
+        };
+        Database.prototype.insert = function (storeName, value, key) {
+            var transaction = this.readWriteTransaction(storeName);
+            var req = transaction.add(storeName, value, key);
+            return req;
+        };
+        Database.prototype.save = function (storeName, value, key) {
+            var transaction = this.readWriteTransaction(storeName);
+            var req = transaction.put(storeName, value, key);
+            return req;
+        };
+
+        Database.prototype.readOnlyTransaction = function (storeNames) {
+            return new ReadOnlyTransaction(this, storeNames);
+        };
+
+        Database.prototype.readWriteTransaction = function (storeNames) {
+            return new ReadWriteTransaction(this, storeNames);
         };
         return Database;
     })();
@@ -212,46 +120,136 @@ var Jaid;
     Jaid.Index = Index;
 
     
-    var Connection = (function () {
-        function Connection(db) {
-            this.db = db;
-        }
-        /*
-        select(storeName: string): IRequest{
-        var transaction = this.readOnlyTransaction(storeName);
-        var req: IRequest = transaction;
-        return req;
-        }
-        */
-        Connection.prototype.insert = function (storeName, value, key) {
-            var transaction = this.readWriteTransaction(storeName);
-            var req = transaction.add(storeName, value, key);
-            return req;
-        };
-        Connection.prototype.save = function (storeName, value, key) {
-            var transaction = this.readWriteTransaction(storeName);
-            var req = transaction.put(storeName, value, key);
-            return req;
-        };
 
-        Connection.prototype.readOnlyTransaction = function (storeNames) {
-            return new ReadOnlyTransaction(this, storeNames);
-        };
+    var OpenDBRequest = (function () {
+        function OpenDBRequest(db, opener) {
+            var _this = this;
+            this.source = db;
+            this.target = opener;
+            opener.onsuccess = function (event) {
+                _this.source.target = event.target.result;
+                _this.onsuccess(event);
+            };
+            opener.onerror = function (event) {
+                var error = opener.error;
+                _this.onerror(error, event);
+            };
+            opener.onblocked = function (event) {
+                _this.onblocked(event);
+            };
+            opener.onupgradeneeded = function (event) {
+                var req = event.target;
+                _this.source.target = req.result;
+                var transaction = new VersionChangeTransaction(_this.source, req.transaction);
+                if (event.oldVersion == 0) {
+                    //initialize
+                    _this.source.objectStores.forEach(function (params) {
+                        // Exclude "already dropped" or "not yet created" indexes.
+                        if ((params.created && params.created > event.newVersion) || (params.dropped && params.dropped <= event.newVersion)) {
+                            return;
+                        }
+                        transaction.createObjectStore(params, event.newVersion);
+                    });
+                    if (_this.oncreated) {
+                        _this.oncreated(transaction, event);
+                    }
+                } else {
+                    //migration
+                    var createdObjectStores = {};
+                    var droppedObjectStores = {};
+                    var createdIndexes = {};
+                    var droppedIndexes = {};
+                    _this.source.objectStores.forEach(function (params) {
+                        if (params.created) {
+                            if (!(params.created in createdObjectStores)) {
+                                createdObjectStores[params.created] = [];
+                            }
+                            createdObjectStores[params.created].push(params);
+                        }
+                        if (params.dropped) {
+                            if (!(params.dropped in droppedObjectStores)) {
+                                droppedObjectStores[params.dropped] = [];
+                            }
+                            droppedObjectStores[params.dropped].push(params);
+                        }
+                        params.indexes.forEach(function (p) {
+                            if (p.created && (!params.created || p.created > params.created)) {
+                                if (!(p.created in createdIndexes)) {
+                                    createdIndexes[p.created] = [];
+                                }
+                                createdIndexes[p.created].push({ storeName: params.name, index: p });
+                            }
+                            if (p.dropped && (!params.dropped || p.dropped < params.dropped)) {
+                                if (!(p.dropped in droppedIndexes)) {
+                                    droppedIndexes[p.dropped] = [];
+                                }
+                                droppedIndexes[p.dropped].push({ storeName: params.name, index: p });
+                            }
+                        });
+                    });
+                    var versions = Object.keys(createdObjectStores).concat(Object.keys(createdIndexes)).concat(Object.keys(droppedObjectStores)).concat(Object.keys(droppedIndexes)).concat(Object.keys(_this.source.migrationHistory)).map(function (v) {
+                        return parseInt(v);
+                    });
+                    versions.filter(function (v, i) {
+                        return (v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i);
+                    }, versions).sort().forEach(function (version) {
+                        // Add new objectStore and Index.
+                        if (version in createdObjectStores) {
+                            createdObjectStores[version].forEach(function (val) {
+                                transaction.createObjectStore(val, version);
+                            });
+                        }
+                        if (version in createdIndexes) {
+                            createdIndexes[version].forEach(function (val) {
+                                transaction.createIndex(val.storeName, val.index);
+                            });
+                        }
 
-        Connection.prototype.readWriteTransaction = function (storeNames) {
-            return new ReadWriteTransaction(this, storeNames);
+                        // Custom operation
+                        if (version in _this.source.migrationHistory) {
+                            _this.source.migrationHistory[version](transaction, event);
+                        }
+
+                        // Remove deprecated objectStore and Index.
+                        if (version in droppedObjectStores) {
+                            droppedObjectStores[version].forEach(function (val) {
+                                transaction.dropObjectStore(val);
+                            });
+                        }
+                        if (version in createdIndexes) {
+                            createdIndexes[version].forEach(function (val) {
+                                transaction.dropIndex(val.storeName, val.index);
+                            });
+                        }
+                    });
+                    /*
+                    */
+                }
+            };
+        }
+        OpenDBRequest.prototype.onSuccess = function (onsuccess) {
+            this.onsuccess = onsuccess;
+            return this;
         };
-        Connection.prototype.close = function () {
-            this.db.close();
-            this.db = null;
+        OpenDBRequest.prototype.onError = function (onerror) {
+            this.onerror = onerror;
+            return this;
         };
-        return Connection;
+        OpenDBRequest.prototype.onBlocked = function (onblocked) {
+            this.onblocked = onblocked;
+            return this;
+        };
+        OpenDBRequest.prototype.onCreated = function (oncreated) {
+            this.oncreated = oncreated;
+            return this;
+        };
+        return OpenDBRequest;
     })();
 
     
 
     var TransactionBase = (function () {
-        function TransactionBase(connection, storeNames, mode) {
+        function TransactionBase(db, storeNames, mode) {
             var _this = this;
             this.oncomplete = function () {
             };
@@ -261,28 +259,29 @@ var Jaid;
             };
             this.results = {};
             this.requests = [];
-            this.connection = connection;
+            this._joinList = [];
+            this.source = db;
             if (typeof storeNames === "object" && storeNames instanceof IDBTransaction) {
-                this.transaction = storeNames;
+                this.target = storeNames;
             } else {
                 if (typeof storeNames === "string") {
                     storeNames = [storeNames];
                 }
-                this.transaction = this.connection.db.transaction(storeNames, mode);
+                this.target = this.source.target.transaction(storeNames, mode);
             }
-            this.transaction.oncomplete = function () {
+            this.target.oncomplete = function () {
                 _this.oncomplete(_this.results);
             };
-            this.transaction.onerror = function () {
+            this.target.onerror = function () {
                 _this.onerror();
             };
-            this.transaction.onabort = function () {
+            this.target.onabort = function () {
                 _this.onabort();
             };
         }
         TransactionBase.prototype._registerRequest = function (request) {
             request.id = this.requests.length;
-            request.transaction = this;
+            request.source = this;
             this.requests.push(request);
             return this;
         };
@@ -298,42 +297,39 @@ var Jaid;
             this.onabort = abort;
             return this;
         };
-        TransactionBase.prototype.withTransaction = function (func) {
-            func(this.transaction);
-            return this;
-        };
+
         TransactionBase.prototype.abort = function () {
-            this.transaction.abort();
+            this.target.abort();
         };
         return TransactionBase;
     })();
 
     var ReadOnlyTransaction = (function (_super) {
         __extends(ReadOnlyTransaction, _super);
-        function ReadOnlyTransaction(connection, storeNames, mode) {
-            _super.call(this, connection, storeNames, mode || "readonly");
+        function ReadOnlyTransaction(db, storeNames, mode) {
+            _super.call(this, db, storeNames, mode || "readonly");
         }
         ReadOnlyTransaction.prototype.getByKey = function (storeName, key) {
-            var objectStore = this.transaction.objectStore(storeName);
+            var objectStore = this.target.objectStore(storeName);
             var req = new Request(objectStore.get(key));
             this._registerRequest(req);
             return req;
         };
         ReadOnlyTransaction.prototype.getByIndex = function (storeName, indexName, key) {
-            var objectStore = this.transaction.objectStore(storeName);
+            var objectStore = this.target.objectStore(storeName);
             var index = objectStore.index(indexName);
             var req = new Request(index.get(key));
             this._registerRequest(req);
             return req;
         };
         ReadOnlyTransaction.prototype.findByKey = function (storeName, range, direction) {
-            var objectStore = this.transaction.objectStore(storeName);
+            var objectStore = this.target.objectStore(storeName);
             var req = new RequestWithCursor(objectStore.openCursor(range, direction));
             this._registerRequest(req);
             return req;
         };
         ReadOnlyTransaction.prototype.findByIndex = function (storeName, indexName, range, direction) {
-            var objectStore = this.transaction.objectStore(storeName);
+            var objectStore = this.target.objectStore(storeName);
             var index = objectStore.index(indexName);
             var req = new RequestWithCursor(index.openCursor(range, direction));
             this._registerRequest(req);
@@ -346,23 +342,23 @@ var Jaid;
 
     var ReadWriteTransaction = (function (_super) {
         __extends(ReadWriteTransaction, _super);
-        function ReadWriteTransaction(connection, storeNames, mode) {
-            _super.call(this, connection, storeNames, mode || "readwrite");
+        function ReadWriteTransaction(db, storeNames, mode) {
+            _super.call(this, db, storeNames, mode || "readwrite");
         }
         ReadWriteTransaction.prototype.add = function (storeName, value, key) {
-            var objectStore = this.transaction.objectStore(storeName);
+            var objectStore = this.target.objectStore(storeName);
             var req = new Request(objectStore.add(value, key));
             this._registerRequest(req);
             return req;
         };
         ReadWriteTransaction.prototype.put = function (storeName, value, key) {
-            var objectStore = this.transaction.objectStore(storeName);
+            var objectStore = this.target.objectStore(storeName);
             var req = new Request(objectStore.put(value, key));
             this._registerRequest(req);
             return req;
         };
         ReadWriteTransaction.prototype.deleteByKey = function (storeName, key) {
-            var objectStore = this.transaction.objectStore(storeName);
+            var objectStore = this.target.objectStore(storeName);
             var req = new Request(objectStore.delete(key));
             this._registerRequest(req);
             return req;
@@ -374,16 +370,15 @@ var Jaid;
 
     var VersionChangeTransaction = (function (_super) {
         __extends(VersionChangeTransaction, _super);
-        function VersionChangeTransaction(connection, transaction) {
-            _super.call(this, connection, transaction);
+        function VersionChangeTransaction(db, transaction) {
+            _super.call(this, db, transaction);
         }
         VersionChangeTransaction.prototype.createObjectStore = function (objectStore, indexVersion) {
             var _this = this;
-            var db = this.connection.db;
             if (!(objectStore instanceof ObjectStore)) {
                 objectStore = new ObjectStore(objectStore);
             }
-            var idbObjectStore = db.createObjectStore(objectStore.name, { keyPath: objectStore.keyPath, autoIncrement: objectStore.autoIncrement || false });
+            var idbObjectStore = this.source.target.createObjectStore(objectStore.name, { keyPath: objectStore.keyPath, autoIncrement: objectStore.autoIncrement || false });
 
             //create indexes.
             if (typeof indexVersion === 'number') {
@@ -404,7 +399,7 @@ var Jaid;
                 idbObjectStore = objectStore;
             } else {
                 var storeName = (typeof objectStore === "string") ? objectStore : objectStore.name;
-                idbObjectStore = this.transaction.objectStore(storeName);
+                idbObjectStore = this.target.objectStore(storeName);
             }
             if (!(index instanceof Index)) {
                 index = new Index(index);
@@ -414,14 +409,13 @@ var Jaid;
         };
 
         VersionChangeTransaction.prototype.dropObjectStore = function (objectStore) {
-            var db = this.connection.db;
             var name;
             if (typeof objectStore === "string") {
                 name = objectStore;
             } else {
                 name = objectStore.name;
             }
-            db.deleteObjectStore(name);
+            this.source.target.deleteObjectStore(name);
         };
 
         VersionChangeTransaction.prototype.dropIndex = function (objectStore, index) {
@@ -431,7 +425,7 @@ var Jaid;
                 idbObjectStore = objectStore;
             } else {
                 var storeName = (typeof objectStore === "string") ? objectStore : objectStore.name;
-                idbObjectStore = this.transaction.objectStore(storeName);
+                idbObjectStore = this.target.objectStore(storeName);
             }
             if (typeof index === 'string') {
                 indexName = index;
@@ -444,26 +438,27 @@ var Jaid;
     })(ReadWriteTransaction);
 
     
+
     var Request = (function () {
         function Request(request) {
             var _this = this;
-            this.request = request;
+            this.target = request;
             this.onSuccess(function (result, event) {
-                _this.transaction.results[_this.id] = event.target;
+                _this.source.results[_this.id] = event.target;
             });
             this.onError(function (error, event) {
-                _this.transaction.abort();
+                _this.source.abort();
             });
         }
         Request.prototype.onSuccess = function (onsuccess) {
-            this.request.onsuccess = function (event) {
+            this.target.onsuccess = function (event) {
                 var result = event.target.result;
                 onsuccess(result, event);
             };
             return this;
         };
         Request.prototype.onError = function (onerror) {
-            this.request.onerror = function (event) {
+            this.target.onerror = function (event) {
                 var error = event.target.error;
                 onerror(error, event);
             };
@@ -474,22 +469,39 @@ var Jaid;
 
     var RequestWithCursor = (function (_super) {
         __extends(RequestWithCursor, _super);
-        function RequestWithCursor() {
-            _super.apply(this, arguments);
+        function RequestWithCursor(request) {
+            var _this = this;
+            _super.call(this, request);
             this.continueFlag = true;
+            this.values = [];
+            this.onSuccess(function (result, event) {
+                _this.values.push({ key: result.key, primaryKey: result.primaryKey, value: result.value });
+            });
         }
         RequestWithCursor.prototype.stopCursor = function () {
             this.continueFlag = false;
         };
+        RequestWithCursor.prototype.onStopIteration = function (func) {
+            var _this = this;
+            this.onstopiteration = function (results) {
+                func(results);
+                _this.source.results[_this.id] = event.target;
+            };
+            return this;
+        };
         RequestWithCursor.prototype.onSuccess = function (onsuccess) {
             var _this = this;
-            this.request.onsuccess = function (event) {
+            this.target.onsuccess = function (event) {
                 var result = event.target.result;
                 if (result) {
                     onsuccess(result, event);
                     if (_this.continueFlag) {
                         result.continue();
+                    } else if (_this.onstopiteration) {
+                        _this.onstopiteration(_this.values);
                     }
+                } else if (_this.onstopiteration) {
+                    _this.onstopiteration(_this.values);
                 }
             };
             return this;
