@@ -32,7 +32,7 @@ var db = new Jaid.Database({
 function reloadAllData(){
     $('#modalBody').text('Loading...');
     $('#modal').modal({backdrop: false, keyboard: false});
-    var transaction = db.connection.readOnlyTransaction('memo');
+    var transaction = db.readOnlyTransaction('memo');
 
     $('#memoNames').empty();
     var req = transaction.findByIndex('memo', 'createdAt', null, 'prev');
@@ -69,7 +69,7 @@ function reloadAllData(){
 }
 
 function deleteData(id: number) {
-    var transaction = db.connection.readWriteTransaction('memo');
+    var transaction = db.readWriteTransaction('memo');
 
     transaction.deleteByKey('memo', id);
 
@@ -136,7 +136,7 @@ $(document).ready(function(){
             }
         }
 
-        var transaction = db.connection.readWriteTransaction('memo');
+        var transaction = db.readWriteTransaction('memo');
         var req: Jaid.IRequest = transaction.put('memo', data, id);
         req.onSuccess(function(result: any, event: Event){
             $('#memoId').val(result);

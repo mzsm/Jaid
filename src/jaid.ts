@@ -47,11 +47,11 @@ module Jaid {
         name?: string;
         version?: number;
         objectStores?: ObjectStoreParams[];
-        migration?: MigrationHistory
+        migrationHistory?: MigrationHistory
     }
 
     /**
-     *
+     * Database Class
      */
     export class Database{
         target: IDBDatabase;
@@ -61,17 +61,39 @@ module Jaid {
         migrationHistory: MigrationHistory = {};
 
         /**
-         * constructor with 3 parameters
-         * @param name: string ... Name of Database
-         * @param version: number ... Version number
-         * @param objectStores: ObjectParams[] ... List of object stores
+         * constructor with multi parameters
+         * @class Database
+         * @constructor
+         * @param {string} [name] Name of Database
+         * @param {number} [version] Version number
+         * @param {Array} [objectStores] List of object stores
+         * @param {MigrationHistory} [migrationHistory] History of migration
          */
         constructor(name?: string, version?: number, objectStores?: ObjectStoreParams[], migrationHistory?: MigrationHistory);
         /**
-         * constructor with 1 parameter
-         * @param param: DatabaseParams ... Dictionary of name, version and objectStores list
+         * constructor with single parameter
+         * @class Database
+         * @constructor
+         * @param {DatabaseParams} [param] Dictionary of name, version, objectStores list and migrationHistory
+         * @param {string} [param.name] Name of Database
+         * @param {number} [param.version] Version number
+         * @param {Array} [param.objectStores] List of object stores
+         * @param {MigrationHistory} [param.migrationHistory] History of migration
          */
         constructor(param?: DatabaseParams);
+        /**
+         * constructor with single or multi parameter(s)
+         * @class Database
+         * @constructor
+         * @param {any} [param] Name of database, or Dictionary of name, version, objectStores list and migrationHistory
+         * @param {string} [param.name] (if param is DatabaseParams) Name of Database
+         * @param {number} [param.version] (if param is DatabaseParams) Version number
+         * @param {Array} [param.objectStores] (if param is DatabaseParams) List of object stores
+         * @param {MigrationHistory} [param.migrationHistory] (if param is DatabaseParams) History of migration
+         * @param {number} [version] (if param is string) Version number
+         * @param {Array} [objectStores] (if param is string) List of object stores
+         * @param {MigrationHistory} [migrationHistory] (if param is string) History of migration
+         */
         constructor(param?: any, version?: number, objectStores?: ObjectStoreParams[], migrationHistory?: MigrationHistory){
             if(typeof param === "string"){
                 this.name = param;
@@ -85,6 +107,11 @@ module Jaid {
                 this.migrationHistory = param.migrationHistory || this.migrationHistory;
             }
         }
+
+        /**
+         * Open database
+         * @returns {IOpenDBRequest}
+         */
         open(): IOpenDBRequest{
             if(this.target){
                 throw Error("This database was already opened.");
@@ -92,6 +119,10 @@ module Jaid {
             var opener: IOpenDBRequest = new OpenDBRequest(this, indexedDB.open(this.name, this.version));
             return opener;
         }
+
+        /**
+         * Close database
+         */
         close(): void{
             if(!this.target){
                 throw Error("This database is not yes opened.");
@@ -99,6 +130,10 @@ module Jaid {
             this.target.close();
             this.target = null;
         }
+
+        /**
+         * Delete database
+         */
         delete(): void{
             indexedDB.deleteDatabase(this.name);
         }
@@ -112,15 +147,52 @@ module Jaid {
             var req: IRequest = transaction.put(storeName, value, key);
             return req;
         }
-        readOnlyTransaction(storeNames?: string): IReadOnlyTransaction;
+
+        /**
+         * Begin read only transaction
+         * @param {string} storeName object store name.
+         * @returns {IReadOnlyTransaction} Read only transaction.
+         */
+        readOnlyTransaction(storeName?: string): IReadOnlyTransaction;
+        /**
+         * Begin read only transaction
+         * @param {string[]} storeNames List of object store name.
+         * @returns {IReadOnlyTransaction} Read only transaction.
+         */
         readOnlyTransaction(storeNames?: string[]): IReadOnlyTransaction;
+        /**
+         * Begin read only transaction
+         * @param {DOMStringList} storeNames List of object store name.
+         * @returns {IReadOnlyTransaction} Read only transaction.
+         */
         readOnlyTransaction(storeNames?: DOMStringList): IReadOnlyTransaction;
         readOnlyTransaction(storeNames?: any): IReadOnlyTransaction{
             return new ReadOnlyTransaction<IReadOnlyTransaction>(this, storeNames);
         }
-        readWriteTransaction(storeNames?: string): IReadWriteTransaction;
+
+        /**
+         * Begin read write transaction
+         * @param {string} storeName Object store name.
+         * @returns {IReadWriteTransaction} Read write transaction.
+         */
+        readWriteTransaction(storeName?: string): IReadWriteTransaction;
+        /**
+         * Begin read write transaction
+         * @param {string[]} storeNames List of object store name.
+         * @returns {IReadWriteTransaction} Read write transaction.
+         */
         readWriteTransaction(storeNames?: string[]): IReadWriteTransaction;
+        /**
+         * Begin read write transaction
+         * @param {DOMStringList} storeNames List of object store name.
+         * @returns {IReadWriteTransaction} Read write transaction.
+         */
         readWriteTransaction(storeNames?: DOMStringList): IReadWriteTransaction;
+        /**
+         * Begin read write transaction
+         * @param {any} storeNames Object store name, or those list.
+         * @returns {IReadWriteTransaction} Read write transaction.
+         */
         readWriteTransaction(storeNames?: any): IReadWriteTransaction{
             return new ReadWriteTransaction<IReadWriteTransaction>(this, storeNames);
         }
@@ -188,7 +260,7 @@ module Jaid {
         onError(onerror: (error: DOMError, event: Event) => void): IOpenDBRequest;
         onBlocked(onblocked: (event: Event) => void): IOpenDBRequest;
         onCreated(oncreated: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void): IOpenDBRequest;
-        //migration(migrationHistory: MigrationHistory): IOpenDBRequest;
+        onMigration(migrationHistory: MigrationHistory): IOpenDBRequest;
     }
 
     class OpenDBRequest implements IOpenDBRequest{
@@ -321,10 +393,10 @@ module Jaid {
             this.oncreated = oncreated;
             return this;
         }
-        //migration(migrationHistory: MigrationHistory): OpenDBRequest{
-        //    //this.migrationHistory = migrationHistory;
-        //    return this;
-        //}
+        onMigration(migrationHistory: MigrationHistory): OpenDBRequest{
+            this.source.migrationHistory = migrationHistory;
+            return this;
+        }
     }
 
     /**

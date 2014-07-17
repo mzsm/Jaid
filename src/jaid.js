@@ -16,9 +16,22 @@ var __extends = this.__extends || function (d, b) {
 var Jaid;
 (function (Jaid) {
     /**
-    *
+    * Database Class
     */
     var Database = (function () {
+        /**
+        * constructor with single or multi parameter(s)
+        * @class Database
+        * @constructor
+        * @param {any} [param] Name of database, or Dictionary of name, version, objectStores list and migrationHistory
+        * @param {string} [param.name] (if param is DatabaseParams) Name of Database
+        * @param {number} [param.version] (if param is DatabaseParams) Version number
+        * @param {Array} [param.objectStores] (if param is DatabaseParams) List of object stores
+        * @param {MigrationHistory} [param.migrationHistory] (if param is DatabaseParams) History of migration
+        * @param {number} [version] (if param is string) Version number
+        * @param {Array} [objectStores] (if param is string) List of object stores
+        * @param {MigrationHistory} [migrationHistory] (if param is string) History of migration
+        */
         function Database(param, version, objectStores, migrationHistory) {
             this.version = 1;
             this.objectStores = [];
@@ -35,6 +48,10 @@ var Jaid;
                 this.migrationHistory = param.migrationHistory || this.migrationHistory;
             }
         }
+        /**
+        * Open database
+        * @returns {IOpenDBRequest}
+        */
         Database.prototype.open = function () {
             if (this.target) {
                 throw Error("This database was already opened.");
@@ -42,6 +59,10 @@ var Jaid;
             var opener = new OpenDBRequest(this, indexedDB.open(this.name, this.version));
             return opener;
         };
+
+        /**
+        * Close database
+        */
         Database.prototype.close = function () {
             if (!this.target) {
                 throw Error("This database is not yes opened.");
@@ -49,6 +70,10 @@ var Jaid;
             this.target.close();
             this.target = null;
         };
+
+        /**
+        * Delete database
+        */
         Database.prototype.delete = function () {
             indexedDB.deleteDatabase(this.name);
         };
@@ -67,6 +92,11 @@ var Jaid;
             return new ReadOnlyTransaction(this, storeNames);
         };
 
+        /**
+        * Begin read write transaction
+        * @param {any} storeNames Object store name, or those list.
+        * @returns {IReadWriteTransaction} Read write transaction.
+        */
         Database.prototype.readWriteTransaction = function (storeNames) {
             return new ReadWriteTransaction(this, storeNames);
         };
@@ -241,6 +271,10 @@ var Jaid;
         };
         OpenDBRequest.prototype.onCreated = function (oncreated) {
             this.oncreated = oncreated;
+            return this;
+        };
+        OpenDBRequest.prototype.onMigration = function (migrationHistory) {
+            this.source.migrationHistory = migrationHistory;
             return this;
         };
         return OpenDBRequest;
