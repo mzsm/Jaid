@@ -144,13 +144,13 @@ function checkVersion(db) {
     $('#dbVersion').text(db.version);
 
     var $showSchema = $('#showSchema').empty();
-    var objectStoreNames = db.connection.db.objectStoreNames;
+    var objectStoreNames = db.target.objectStoreNames;
     var OSLength = objectStoreNames.length;
     for (var i = 0; i < OSLength; i++) {
         var storeName = objectStoreNames[i];
         var li = $('<li>').text(storeName);
 
-        var transaction = db.connection.readOnlyTransaction(objectStoreNames);
+        var transaction = db.readOnlyTransaction(objectStoreNames);
 
         var req = transaction.findByKey('store1', null, 'next');
 
@@ -164,9 +164,10 @@ function checkVersion(db) {
 
 function execute(version, schema) {
     $('#alerts').empty();
-    var db = new Jaid.Database('upgradeTest', version, schema.schema).open().onSuccess(function () {
+    var db = new Jaid.Database('upgradeTest', version, schema.schema);
+    var opener = db.open().onSuccess(function () {
         checkVersion(db);
-        db.connection.close();
+        db.close();
     }).onError(function (err, event) {
         var alert = $('<div class="alert alert-danger">');
         alert.append($('<p class="lead">').text(err.name));
@@ -174,10 +175,10 @@ function execute(version, schema) {
         $('#alerts').append(alert);
     });
     if (schema.history) {
-        db.onMigration(schema.history);
+        opener.onMigration(schema.history);
     }
     if (schema.created) {
-        db.onCreated(schema.created);
+        opener.onCreated(schema.created);
     }
 }
 
