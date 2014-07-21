@@ -15,6 +15,10 @@ declare var IDBObjectStore: {
     prototype: IDBObjectStore;
     new (): IDBObjectStore;
 };
+declare var IDBIndex: {
+    prototype: IDBIndex;
+    new (): IDBIndex;
+};
 declare var IDBTransaction: {
     prototype: IDBTransaction;
     new (): IDBTransaction;
@@ -355,11 +359,6 @@ module Jaid {
                                     transaction.createIndex(val.storeName, val.index);
                                 });
                             }
-                            // Custom operation
-                            if(version in this.source.migrationHistory){
-                                this.source.migrationHistory[version](transaction, event);
-                            }
-
                             // Remove deprecated objectStore and Index.
                             if(version in droppedObjectStores){
                                 droppedObjectStores[version].forEach((val: ObjectStoreParams) => {
@@ -370,6 +369,10 @@ module Jaid {
                                 createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
                                     transaction.dropIndex(val.storeName, val.index);
                                 });
+                            }
+                            // Custom operation
+                            if(version in this.source.migrationHistory){
+                                this.source.migrationHistory[version](transaction, event);
                             }
                         });
                     /*
@@ -399,6 +402,73 @@ module Jaid {
         }
     }
 
+    /*
+    class Migration{
+        source: MigrationManager;
+        continued: boolean = false;
+        version: number;
+        createdObjectStores: ObjectStoreParams[];
+        createdIndexes: {storeName: string; index: IndexParams}[];
+        droppedObjectStores: ObjectStoreParams[];
+        droppedIndexes: {storeName: string; index: IndexParams}[];
+        customOperation: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
+
+        constructor(manager: MigrationManager, version: number){
+            this.source = manager;
+            this.version = version;
+        }
+        next(): void{
+            if(this.continued){
+                console.error("Already called.");
+            }else{
+                this.continued = true;
+                this.source.next();
+            }
+        }
+        execute(transaction: IVersionChangeTransaction){
+            this.createdObjectStores.forEach((val: ObjectStoreParams) => {
+                transaction.createObjectStore(val, this.version);
+            });
+            this.createdIndexes.forEach((val: {storeName: string; index: IndexParams}) => {
+                transaction.createIndex(val.storeName, val.index);
+            });
+            // Remove deprecated objectStore and Index.
+            this.droppedObjectStores.forEach((val: ObjectStoreParams) => {
+                transaction.dropObjectStore(val);
+            });
+            this.createdIndexes.forEach((val: {storeName: string; index: IndexParams}) => {
+                transaction.dropIndex(val.storeName, val.index);
+            });
+            // Custom operation
+            if(this.customOperation){
+                this.customOperation(transaction, event);
+            }else{
+                this.next();
+            }
+        }
+    }
+
+    class MigrationManager {
+        versions: {[version: number]: Migration} = {};
+        versionNumbers: number[] = [];
+
+        get(version: number): Migration{
+            if(!(version in this.versions)){
+                this.versions[version] = new Migration(this, version);
+            }
+            return this.versions[version];
+        }
+        next(){
+            var nextVersion =this.versionNumbers.shift();
+            this.versions[nextVersion].execute();
+        }
+        execute(){
+            this.versionNumbers = Object.keys(this.versions).map((v) => {return parseInt(v)});
+            this.next();
+        }
+    }
+    */
+
     /**
      * transaction
      */
@@ -414,6 +484,8 @@ module Jaid {
         onComplete(complete: Function): Transaction;
         onError(error: Function): Transaction;
         onAbort(abort: Function): Transaction;
+        join(requests?: IRequest[]): RequestJoin;
+        _requestCallback(req: IRequest, result: any): void;
 
         abort(): void;
     }
@@ -425,6 +497,7 @@ module Jaid {
         onerror: Function = function(){};
         onabort: Function = function(){};
         results: {[id: number]: any} = {};
+        requestCounter: number = 0;
         requests: any[] = [];
         _joinList: any[] = [];
 
@@ -453,7 +526,7 @@ module Jaid {
             };
         }
         _registerRequest(request: IRequest): T{
-            request.id = this.requests.length;
+            request.id = this.requestCounter++;
             request.source = <ITransactionBase><any>this;
             this.requests.push(request);
             return <T><any>this;
@@ -470,13 +543,32 @@ module Jaid {
             this.onabort = abort;
             return <T><any>this;
         }
-
         abort(): void{
             this.target.abort();
         }
         //get requestIdList: number[]{
         //    return Object.keys(this.requests).map((id)=>{parseInt(id)});
         //}
+        join(requests?: IRequest[]): RequestJoin{
+            var newJoin = new RequestJoin(requests);
+            this._joinList.push(newJoin);
+            return newJoin;
+        }
+        _requestCallback(req: IRequest, result: any): void{
+            this._joinList.forEach((join: RequestJoin) => {
+                if(req.id in join.queue){
+                    if(req.target.error){
+                        join.errors[req.id] = <DOMError>result;
+                    }else{
+                        join.results[req.id] = result;
+                    }
+                    delete join.queue[req.id];
+                    if(Object.keys(join.queue).length == 0){
+                        join.oncomplete(join.results, join.errors);
+                    }
+                }
+            });
+        }
     }
 
     export interface _IReadOnlyTransaction<Transaction> extends _ITransactionBase<Transaction> {
@@ -562,7 +654,7 @@ module Jaid {
     }
 
     /**
-     * Read/Write transaction
+     * Version change transaction
      */
     export interface _IVersionChangeTransaction<VersionChangeTransaction> extends _IReadWriteTransaction<VersionChangeTransaction> {
         createObjectStore(objectStore: ObjectStoreParams, indexVersion?: number): IDBObjectStore;
@@ -661,6 +753,21 @@ module Jaid {
             }
             idbObjectStore.deleteIndex(indexName);
         }
+        onComplete(complete: Function): T{
+            console.error("Cannot change oncomplete event in VersionChangeTransaction.");
+            return <T><any>this;
+        }
+        onError(error: Function): T{
+            console.error("Cannot change onerror event in VersionChangeTransaction.");
+            return <T><any>this;
+        }
+        onAbort(abort: Function): T{
+            console.error("Cannot change onabort event in VersionChangeTransaction.");
+            return <T><any>this;
+        }
+        abort(): void{
+            console.error("Cannot call abort method in VersionChangeTransaction.");
+        }
     }
 
     /**
@@ -686,12 +793,14 @@ module Jaid {
                 this.source.results[this.id] = event.target;
             });
             this.onError((error: DOMError, event: Event) => {
-                this.source.abort();
+                console.log(this);
+                //this.source.abort();
             });
         }
         onSuccess(onsuccess: (result: any, event: Event) => any): T{
             this.target.onsuccess = (event: Event) => {
                 var result = <any>(<IDBRequest>event.target).result;
+                this.source._requestCallback(<IRequest><any>this, result);
                 onsuccess(result, event);
             };
             return <T><any>this;
@@ -699,6 +808,7 @@ module Jaid {
         onError(onerror: (error: DOMError, event: Event) => any): T{
             this.target.onerror = (event: Event) => {
                 var error = <DOMError>(<IDBRequest>event.target).error;
+                this.source._requestCallback(<IRequest><any>this, error);
                 onerror(error, event);
             };
             return <T><any>this;
@@ -750,6 +860,32 @@ module Jaid {
                 }
             };
             return <T><any>this;
+        }
+    }
+
+    export class RequestJoin{
+        requests: IRequest[] = [];
+        queue: {[id: number]: IRequest} = {};
+        results: {[id: number]: any} = {};
+        errors: {[id: number]: DOMError} = {};
+
+        oncomplete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void = function(){};
+
+        constructor(requests?: IRequest[]){
+            if(requests){
+                this.requests = requests;
+            }
+            this.requests.forEach((req: IRequest) =>{
+                this.queue[req.id] = req;
+            });
+        }
+        add(request: IRequest){
+            this.requests.push(request);
+            this.queue[request.id] = request;
+        }
+        onComplete(complete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): RequestJoin{
+            this.oncomplete = complete;
+            return this;
         }
     }
 }

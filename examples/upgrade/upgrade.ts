@@ -14,17 +14,40 @@ interface SchemaTable {
 
 var upgradeHistoryFunc2 = function(transaction: Jaid.IVersionChangeTransaction){
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.2'));
+    var join1 = transaction.join();
+    var join3 = transaction.join();
+    var join10 = transaction.join();
+    join1.onComplete((results: any)=>{
+        console.log(results);
+    });
+    join3.onComplete((results: any)=>{
+        console.log(results);
+    });
+    join10.onComplete((results: any)=>{
+        console.log(results);
+    });
     for(var i=0; i<10000; i++){
-        var result = transaction.put('store2_2', {message: 'hogeeeeeeeeeeeeeeeee', updated: new Date()});
-        result.onSuccess(function(result: any, event: Event){
-            console.log(result, event);
-        });
+        var result = transaction.add('store2_2', {message: 'hogeeeeeeeeeeeeeeeee', updated: new Date()});
+        result.onError((error: DOMError, event: Event)=>{});
+        join1.add(result);
+        if(i%3 == 0){
+            join3.add(result);
+        }
+        if(i%10 == 0){
+            join10.add(result);
+        }
     }
-    transaction.put('store1', {message: 'set version2', updated: new Date()});
+    transaction.abort();
+    //transaction.put('store1', {message: 'set version2', updated: new Date()});
 };
 var upgradeHistoryFunc3000 = function(transaction: Jaid.IVersionChangeTransaction){
+    /*
+    transaction.findByKey('store2_2', null, 'next').onStopIteration((values: any) => {
+        console.log(values);
+    });
+    */
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.3000'));
-    transaction.put('store1', {message: 'set version3', updated: new Date()});
+    //transaction.put('store1', {message: 'set version3', updated: new Date()});
 };
 
 var createdFunc1 = function(transaction: Jaid.IVersionChangeTransaction) {
@@ -130,7 +153,7 @@ schemaTable[3000] = {
     ],
     history: {
         2: upgradeHistoryFunc2,
-        3: upgradeHistoryFunc3000
+        3000: upgradeHistoryFunc3000
     },
     created: createdFunc3
 };

@@ -235,11 +235,6 @@ var Jaid;
                             });
                         }
 
-                        // Custom operation
-                        if (version in _this.source.migrationHistory) {
-                            _this.source.migrationHistory[version](transaction, event);
-                        }
-
                         // Remove deprecated objectStore and Index.
                         if (version in droppedObjectStores) {
                             droppedObjectStores[version].forEach(function (val) {
@@ -250,6 +245,11 @@ var Jaid;
                             createdIndexes[version].forEach(function (val) {
                                 transaction.dropIndex(val.storeName, val.index);
                             });
+                        }
+
+                        // Custom operation
+                        if (version in _this.source.migrationHistory) {
+                            _this.source.migrationHistory[version](transaction, event);
                         }
                     });
                     /*
@@ -292,6 +292,7 @@ var Jaid;
             this.onabort = function () {
             };
             this.results = {};
+            this.requestCounter = 0;
             this.requests = [];
             this._joinList = [];
             this.source = db;
@@ -314,7 +315,7 @@ var Jaid;
             };
         }
         TransactionBase.prototype._registerRequest = function (request) {
-            request.id = this.requests.length;
+            request.id = this.requestCounter++;
             request.source = this;
             this.requests.push(request);
             return this;
@@ -331,9 +332,32 @@ var Jaid;
             this.onabort = abort;
             return this;
         };
-
         TransactionBase.prototype.abort = function () {
             this.target.abort();
+        };
+
+        //get requestIdList: number[]{
+        //    return Object.keys(this.requests).map((id)=>{parseInt(id)});
+        //}
+        TransactionBase.prototype.join = function (requests) {
+            var newJoin = new RequestJoin(requests);
+            this._joinList.push(newJoin);
+            return newJoin;
+        };
+        TransactionBase.prototype._requestCallback = function (req, result) {
+            this._joinList.forEach(function (join) {
+                if (req.id in join.queue) {
+                    if (req.target.error) {
+                        join.errors[req.id] = result;
+                    } else {
+                        join.results[req.id] = result;
+                    }
+                    delete join.queue[req.id];
+                    if (Object.keys(join.queue).length == 0) {
+                        join.oncomplete(join.results, join.errors);
+                    }
+                }
+            });
         };
         return TransactionBase;
     })();
@@ -468,6 +492,21 @@ var Jaid;
             }
             idbObjectStore.deleteIndex(indexName);
         };
+        VersionChangeTransaction.prototype.onComplete = function (complete) {
+            console.error("Cannot change oncomplete event in VersionChangeTransaction.");
+            return this;
+        };
+        VersionChangeTransaction.prototype.onError = function (error) {
+            console.error("Cannot change onerror event in VersionChangeTransaction.");
+            return this;
+        };
+        VersionChangeTransaction.prototype.onAbort = function (abort) {
+            console.error("Cannot change onabort event in VersionChangeTransaction.");
+            return this;
+        };
+        VersionChangeTransaction.prototype.abort = function () {
+            console.error("Cannot call abort method in VersionChangeTransaction.");
+        };
         return VersionChangeTransaction;
     })(ReadWriteTransaction);
 
@@ -481,19 +520,24 @@ var Jaid;
                 _this.source.results[_this.id] = event.target;
             });
             this.onError(function (error, event) {
-                _this.source.abort();
+                console.log(_this);
+                //this.source.abort();
             });
         }
         Request.prototype.onSuccess = function (onsuccess) {
+            var _this = this;
             this.target.onsuccess = function (event) {
                 var result = event.target.result;
+                _this.source._requestCallback(_this, result);
                 onsuccess(result, event);
             };
             return this;
         };
         Request.prototype.onError = function (onerror) {
+            var _this = this;
             this.target.onerror = function (event) {
                 var error = event.target.error;
+                _this.source._requestCallback(_this, error);
                 onerror(error, event);
             };
             return this;
@@ -542,5 +586,33 @@ var Jaid;
         };
         return RequestWithCursor;
     })(Request);
+
+    var RequestJoin = (function () {
+        function RequestJoin(requests) {
+            var _this = this;
+            this.requests = [];
+            this.queue = {};
+            this.results = {};
+            this.errors = {};
+            this.oncomplete = function () {
+            };
+            if (requests) {
+                this.requests = requests;
+            }
+            this.requests.forEach(function (req) {
+                _this.queue[req.id] = req;
+            });
+        }
+        RequestJoin.prototype.add = function (request) {
+            this.requests.push(request);
+            this.queue[request.id] = request;
+        };
+        RequestJoin.prototype.onComplete = function (complete) {
+            this.oncomplete = complete;
+            return this;
+        };
+        return RequestJoin;
+    })();
+    Jaid.RequestJoin = RequestJoin;
 })(Jaid || (Jaid = {}));
 //# sourceMappingURL=jaid.js.map
