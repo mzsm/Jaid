@@ -280,6 +280,101 @@ var Jaid;
         return OpenDBRequest;
     })();
 
+    var Migration = (function () {
+        function Migration(manager, version) {
+            this.continued = false;
+            this.executed = false;
+            this.source = manager;
+            this.version = version;
+        }
+        Migration.prototype.next = function () {
+            if (this.continued) {
+                console.error("Already called.");
+            } else {
+                this.continued = true;
+                this.source.next();
+            }
+        };
+        Migration.prototype.execute = function (transaction) {
+            var _this = this;
+            if (this.executed) {
+                console.error("Already called.");
+                return;
+            }
+            this.createdObjectStores.forEach(function (val) {
+                transaction.createObjectStore(val, _this.version);
+            });
+            this.createdIndexes.forEach(function (val) {
+                transaction.createIndex(val.storeName, val.index);
+            });
+
+            // Remove deprecated objectStore and Index.
+            this.droppedObjectStores.forEach(function (val) {
+                transaction.dropObjectStore(val);
+            });
+            this.createdIndexes.forEach(function (val) {
+                transaction.dropIndex(val.storeName, val.index);
+            });
+
+            // Custom operation
+            if (this.customOperation) {
+                this.customOperation(transaction, this);
+            } else {
+                this.next();
+            }
+        };
+        return Migration;
+    })();
+
+    var MigrationManager = (function () {
+        function MigrationManager(schema, migrationHistory) {
+            var _this = this;
+            this.versions = {};
+            this.versionNumbers = [];
+            schema.forEach(function (params) {
+                if (params.created) {
+                    var obj = _this.get(params.created);
+                    obj.createdObjectStores.push(params);
+                }
+                if (params.dropped) {
+                    var obj = _this.get(params.dropped);
+                    obj.droppedObjectStores.push(params);
+                }
+                params.indexes.forEach(function (p) {
+                    if (p.created && (!params.created || p.created > params.created)) {
+                        var obj = _this.get(p.created);
+                        obj.createdIndexes.push({ storeName: params.name, index: p });
+                    }
+                    if (p.dropped && (!params.dropped || p.dropped < params.dropped)) {
+                        var obj = _this.get(p.dropped);
+                        obj.droppedIndexes.push({ storeName: params.name, index: p });
+                    }
+                });
+            });
+        }
+        MigrationManager.prototype.get = function (version) {
+            if (!(version in this.versions)) {
+                this.versions[version] = new Migration(this, version);
+            }
+            return this.versions[version];
+        };
+        MigrationManager.prototype.next = function () {
+            var nextVersion = this.versionNumbers.shift();
+            this.versions[nextVersion].execute(this.transaction);
+        };
+        MigrationManager.prototype.execute = function (transaction, event) {
+            this.transaction = transaction;
+            this.versionNumbers = Object.keys(this.versions).map(function (v) {
+                return parseInt(v);
+            });
+            this.versionNumbers = this.versionNumbers.filter(function (v, i) {
+                return (v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i);
+            }, this.versionNumbers).sort();
+            this.next();
+        };
+        return MigrationManager;
+    })();
+
     
 
     var TransactionBase = (function () {

@@ -44,7 +44,7 @@ module Jaid {
     }
 
     export interface MigrationHistory {
-        [version: number]: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
+        [version: number]: (transaction: IVersionChangeTransaction, migration: IMigration) => void;
     }
 
     export interface DatabaseParams {
@@ -402,16 +402,20 @@ module Jaid {
         }
     }
 
-    /*
-    class Migration{
+    export interface IMigration{
+        next(): void;
+    }
+
+    class Migration implements IMigration{
         source: MigrationManager;
         continued: boolean = false;
+        executed: boolean = false;
         version: number;
         createdObjectStores: ObjectStoreParams[];
         createdIndexes: {storeName: string; index: IndexParams}[];
         droppedObjectStores: ObjectStoreParams[];
         droppedIndexes: {storeName: string; index: IndexParams}[];
-        customOperation: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
+        customOperation: (transaction: IVersionChangeTransaction, migration: IMigration) => void;
 
         constructor(manager: MigrationManager, version: number){
             this.source = manager;
@@ -425,7 +429,11 @@ module Jaid {
                 this.source.next();
             }
         }
-        execute(transaction: IVersionChangeTransaction){
+        execute(transaction: IVersionChangeTransaction): void{
+            if(this.executed){
+                console.error("Already called.");
+                return;
+            }
             this.createdObjectStores.forEach((val: ObjectStoreParams) => {
                 transaction.createObjectStore(val, this.version);
             });
@@ -441,7 +449,7 @@ module Jaid {
             });
             // Custom operation
             if(this.customOperation){
-                this.customOperation(transaction, event);
+                this.customOperation(transaction, this);
             }else{
                 this.next();
             }
@@ -451,6 +459,30 @@ module Jaid {
     class MigrationManager {
         versions: {[version: number]: Migration} = {};
         versionNumbers: number[] = [];
+        transaction: IVersionChangeTransaction;
+
+        constructor(schema: ObjectStoreParams[], migrationHistory: MigrationHistory){
+            schema.forEach((params: ObjectStoreParams) => {
+                if(params.created) {
+                    var obj = this.get(params.created);
+                    obj.createdObjectStores.push(params);
+                }
+                if(params.dropped){
+                    var obj = this.get(params.dropped);
+                    obj.droppedObjectStores.push(params);
+                }
+                params.indexes.forEach((p: IndexParams) => {
+                    if(p.created && (!params.created || p.created > params.created)) {
+                        var obj = this.get(p.created);
+                        obj.createdIndexes.push({storeName: params.name, index: p});
+                    }
+                    if(p.dropped && (!params.dropped || p.dropped < params.dropped)) {
+                        var obj = this.get(p.dropped);
+                        obj.droppedIndexes.push({storeName: params.name, index: p});
+                    }
+                });
+            });
+        }
 
         get(version: number): Migration{
             if(!(version in this.versions)){
@@ -459,15 +491,16 @@ module Jaid {
             return this.versions[version];
         }
         next(){
-            var nextVersion =this.versionNumbers.shift();
-            this.versions[nextVersion].execute();
+            var nextVersion: number =this.versionNumbers.shift();
+            (<Migration>this.versions[nextVersion]).execute(this.transaction);
         }
-        execute(){
+        execute(transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent){
+            this.transaction = transaction;
             this.versionNumbers = Object.keys(this.versions).map((v) => {return parseInt(v)});
+            this.versionNumbers = this.versionNumbers.filter(function(v, i){ return(v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i); }, this.versionNumbers).sort();
             this.next();
         }
     }
-    */
 
     /**
      * transaction
