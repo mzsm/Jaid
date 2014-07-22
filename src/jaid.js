@@ -217,42 +217,42 @@ var Jaid;
                             }
                         });
                     });
-                    var versions = Object.keys(createdObjectStores).concat(Object.keys(createdIndexes)).concat(Object.keys(droppedObjectStores)).concat(Object.keys(droppedIndexes)).concat(Object.keys(_this.source.migrationHistory)).map(function (v) {
-                        return parseInt(v);
-                    });
-                    versions.filter(function (v, i) {
-                        return (v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i);
-                    }, versions).sort().forEach(function (version) {
-                        // Add new objectStore and Index.
-                        if (version in createdObjectStores) {
-                            createdObjectStores[version].forEach(function (val) {
-                                transaction.createObjectStore(val, version);
-                            });
-                        }
-                        if (version in createdIndexes) {
-                            createdIndexes[version].forEach(function (val) {
-                                transaction.createIndex(val.storeName, val.index);
-                            });
-                        }
-
-                        // Remove deprecated objectStore and Index.
-                        if (version in droppedObjectStores) {
-                            droppedObjectStores[version].forEach(function (val) {
-                                transaction.dropObjectStore(val);
-                            });
-                        }
-                        if (version in createdIndexes) {
-                            createdIndexes[version].forEach(function (val) {
-                                transaction.dropIndex(val.storeName, val.index);
-                            });
-                        }
-
-                        // Custom operation
-                        if (version in _this.source.migrationHistory) {
-                            _this.source.migrationHistory[version](transaction, event);
-                        }
-                    });
                     /*
+                    var versions: number[] = Object.keys(createdObjectStores)
+                    .concat(Object.keys(createdIndexes))
+                    .concat(Object.keys(droppedObjectStores))
+                    .concat(Object.keys(droppedIndexes))
+                    .concat(Object.keys(this.source.migrationHistory)).map((v) => {return parseInt(v)});
+                    versions.filter(function(v, i){ return(v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i); }, versions)
+                    .sort()
+                    .forEach((version: number) => {
+                    // Add new objectStore and Index.
+                    if(version in createdObjectStores){
+                    createdObjectStores[version].forEach((val: ObjectStoreParams) => {
+                    transaction.createObjectStore(val, version);
+                    });
+                    }
+                    if(version in createdIndexes){
+                    createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
+                    transaction.createIndex(val.storeName, val.index);
+                    });
+                    }
+                    // Remove deprecated objectStore and Index.
+                    if(version in droppedObjectStores){
+                    droppedObjectStores[version].forEach((val: ObjectStoreParams) => {
+                    transaction.dropObjectStore(val);
+                    });
+                    }
+                    if(version in createdIndexes){
+                    createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
+                    transaction.dropIndex(val.storeName, val.index);
+                    });
+                    }
+                    // Custom operation
+                    if(version in this.source.migrationHistory){
+                    this.source.migrationHistory[version](transaction, event);
+                    }
+                    });
                     */
                 }
             };

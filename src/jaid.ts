@@ -340,6 +340,7 @@ module Jaid {
                             }
                         });
                     });
+                    /*
                     var versions: number[] = Object.keys(createdObjectStores)
                         .concat(Object.keys(createdIndexes))
                         .concat(Object.keys(droppedObjectStores))
@@ -375,7 +376,6 @@ module Jaid {
                                 this.source.migrationHistory[version](transaction, event);
                             }
                         });
-                    /*
                     */
                 }
             };
