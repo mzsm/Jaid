@@ -4,27 +4,33 @@
 "use strict";
 
 interface Schema {
-    schema: Jaid.ObjectStoreParams[];
-    history?: Jaid.MigrationHistory;
+    schema: Jaid.IObjectStore[];
+    history?: Jaid.IMigrationHistory;
     created?: (transaction: Jaid.IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
 }
 interface SchemaTable {
     [version: string]: Schema;
 }
 
-var upgradeHistoryFunc2 = function(transaction: Jaid.IVersionChangeTransaction){
+var upgradeHistoryFunc2 = function(transaction: Jaid.IVersionChangeTransaction, migration: Jaid.IMigration){
+    console.log('migration 2');
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.2'));
-    var join1 = transaction.join();
-    var join3 = transaction.join();
-    var join10 = transaction.join();
+    var join1 = transaction.grouping();
+    var join3 = transaction.grouping();
+    var join10 = transaction.grouping();
+    var nestedJoin = transaction.grouping([join1, join3, join10]);
     join1.onComplete((results: any)=>{
-        console.log(results);
+        var req = transaction.findByKey('store2_2', null, 'next').onStopIteration((values: any) => {
+            console.log(values);
+        });
+        nestedJoin.add(req);
+        console.log(nestedJoin);
+        nestedJoin.joinAll();
     });
-    join3.onComplete((results: any)=>{
+    nestedJoin.onComplete((results: any)=>{
         console.log(results);
-    });
-    join10.onComplete((results: any)=>{
-        console.log(results);
+        console.log('migration 2 completed.');
+        migration.next();
     });
     for(var i=0; i<10000; i++){
         var result = transaction.add('store2_2', {message: 'hogeeeeeeeeeeeeeeeee', updated: new Date()});
@@ -37,16 +43,20 @@ var upgradeHistoryFunc2 = function(transaction: Jaid.IVersionChangeTransaction){
             join10.add(result);
         }
     }
-    transaction.abort();
+    join1.joinAll();
+    join3.joinAll();
+    join10.joinAll();
     //transaction.put('store1', {message: 'set version2', updated: new Date()});
 };
-var upgradeHistoryFunc3000 = function(transaction: Jaid.IVersionChangeTransaction){
+var upgradeHistoryFunc3000 = function(transaction: Jaid.IVersionChangeTransaction, migration: Jaid.IMigration){
+    console.log('migration 3000');
     /*
     transaction.findByKey('store2_2', null, 'next').onStopIteration((values: any) => {
         console.log(values);
     });
     */
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.3000'));
+    migration.next();
     //transaction.put('store1', {message: 'set version3', updated: new Date()});
 };
 
@@ -197,7 +207,7 @@ function checkVersion(db: Jaid.Database): void{
 
 function execute(version: number, schema: Schema): void {
     $('#alerts').empty();
-    var db: Jaid.Database = new Jaid.Database('upgradeTest', version, schema.schema);
+    var db: Jaid.Database = new Jaid.Database('upgradeTest', version, schema.schema, schema.history);
     var opener = db.open().onSuccess(function(){
             checkVersion(db);
             db.close();
@@ -207,9 +217,6 @@ function execute(version: number, schema: Schema): void {
             alert.append($('<p>').text(err.message));
             $('#alerts').append(alert);
         });
-    if (schema.history){
-        opener.onMigration(schema.history);
-    }
     if (schema.created){
         opener.onCreated(schema.created);
     }

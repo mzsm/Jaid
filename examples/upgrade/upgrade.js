@@ -2,19 +2,25 @@
 /// <reference path="../../d.ts/jquery/jquery.d.ts" />
 /// <reference path="../../d.ts/bootstrap/bootstrap.d.ts" />
 "use strict";
-var upgradeHistoryFunc2 = function (transaction) {
+var upgradeHistoryFunc2 = function (transaction, migration) {
+    console.log('migration 2');
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.2'));
-    var join1 = transaction.join();
-    var join3 = transaction.join();
-    var join10 = transaction.join();
+    var join1 = transaction.grouping();
+    var join3 = transaction.grouping();
+    var join10 = transaction.grouping();
+    var nestedJoin = transaction.grouping([join1, join3, join10]);
     join1.onComplete(function (results) {
-        console.log(results);
+        var req = transaction.findByKey('store2_2', null, 'next').onStopIteration(function (values) {
+            console.log(values);
+        });
+        nestedJoin.add(req);
+        console.log(nestedJoin);
+        nestedJoin.joinAll();
     });
-    join3.onComplete(function (results) {
+    nestedJoin.onComplete(function (results) {
         console.log(results);
-    });
-    join10.onComplete(function (results) {
-        console.log(results);
+        console.log('migration 2 completed.');
+        migration.next();
     });
     for (var i = 0; i < 10000; i++) {
         var result = transaction.add('store2_2', { message: 'hogeeeeeeeeeeeeeeeee', updated: new Date() });
@@ -28,16 +34,21 @@ var upgradeHistoryFunc2 = function (transaction) {
             join10.add(result);
         }
     }
-    transaction.abort();
+    join1.joinAll();
+    join3.joinAll();
+    join10.joinAll();
     //transaction.put('store1', {message: 'set version2', updated: new Date()});
 };
-var upgradeHistoryFunc3000 = function (transaction) {
+var upgradeHistoryFunc3000 = function (transaction, migration) {
+    console.log('migration 3000');
+
     /*
     transaction.findByKey('store2_2', null, 'next').onStopIteration((values: any) => {
     console.log(values);
     });
     */
     $('#alerts').append($('<div class="alert alert-success">').text('Migrate to ver.3000'));
+    migration.next();
     //transaction.put('store1', {message: 'set version3', updated: new Date()});
 };
 
@@ -188,7 +199,7 @@ function checkVersion(db) {
 
 function execute(version, schema) {
     $('#alerts').empty();
-    var db = new Jaid.Database('upgradeTest', version, schema.schema);
+    var db = new Jaid.Database('upgradeTest', version, schema.schema, schema.history);
     var opener = db.open().onSuccess(function () {
         checkVersion(db);
         db.close();
@@ -198,9 +209,6 @@ function execute(version, schema) {
         alert.append($('<p>').text(err.message));
         $('#alerts').append(alert);
     });
-    if (schema.history) {
-        opener.onMigration(schema.history);
-    }
     if (schema.created) {
         opener.onCreated(schema.created);
     }

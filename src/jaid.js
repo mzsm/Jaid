@@ -15,6 +15,8 @@ var __extends = this.__extends || function (d, b) {
 };
 var Jaid;
 (function (Jaid) {
+    
+
     /**
     * Database Class
     */
@@ -27,10 +29,10 @@ var Jaid;
         * @param {string} [param.name] (if param is DatabaseParams) Name of Database
         * @param {number} [param.version] (if param is DatabaseParams) Version number
         * @param {Array} [param.objectStores] (if param is DatabaseParams) List of object stores
-        * @param {MigrationHistory} [param.migrationHistory] (if param is DatabaseParams) History of migration
+        * @param {IMigrationHistory} [param.migrationHistory] (if param is DatabaseParams) History of migration
         * @param {number} [version] (if param is string) Version number
         * @param {Array} [objectStores] (if param is string) List of object stores
-        * @param {MigrationHistory} [migrationHistory] (if param is string) History of migration
+        * @param {IMigrationHistory} [migrationHistory] (if param is string) History of migration
         */
         function Database(param, version, objectStores, migrationHistory) {
             this.version = 1;
@@ -104,51 +106,6 @@ var Jaid;
     })();
     Jaid.Database = Database;
 
-    /**
-    * object store.
-    */
-    var ObjectStore = (function () {
-        function ObjectStore(params) {
-            this.autoIncrement = false;
-            this.indexes = [];
-            this.created = 0;
-            this.name = params.name || this.name;
-            this.keyPath = params.keyPath || this.keyPath;
-            if (typeof params.autoIncrement !== "undefined") {
-                this.autoIncrement = params.autoIncrement;
-            }
-            if (typeof params.indexes !== "undefined") {
-                this.indexes = params.indexes;
-            }
-            this.created = params.created || this.created;
-        }
-        return ObjectStore;
-    })();
-    Jaid.ObjectStore = ObjectStore;
-
-    /**
-    * index.
-    */
-    var Index = (function () {
-        function Index(params) {
-            this.unique = false;
-            this.multiEntry = false;
-            this.created = 0;
-            this.name = params.name || this.name;
-            this.keyPath = params.keyPath || this.keyPath;
-            if (typeof params.unique !== "undefined") {
-                this.unique = params.unique;
-            }
-            if (typeof params.unique !== "undefined") {
-                this.multiEntry = params.multiEntry;
-            }
-            this.created = params.created;
-            this.dropped = params.dropped;
-        }
-        return Index;
-    })();
-    Jaid.Index = Index;
-
     
 
     var OpenDBRequest = (function () {
@@ -156,6 +113,12 @@ var Jaid;
             var _this = this;
             this.source = db;
             this.target = opener;
+            try  {
+                this.migrationManager = new MigrationManager(this, this.source.objectStores, this.source.migrationHistory);
+            } catch (e) {
+                console.log(e, e.stack);
+            }
+
             opener.onsuccess = function (event) {
                 _this.source.target = event.target.result;
                 _this.onsuccess(event);
@@ -171,90 +134,7 @@ var Jaid;
                 var req = event.target;
                 _this.source.target = req.result;
                 var transaction = new VersionChangeTransaction(_this.source, req.transaction);
-                if (event.oldVersion == 0) {
-                    //initialize
-                    _this.source.objectStores.forEach(function (params) {
-                        // Exclude "already dropped" or "not yet created" indexes.
-                        if ((params.created && params.created > event.newVersion) || (params.dropped && params.dropped <= event.newVersion)) {
-                            return;
-                        }
-                        transaction.createObjectStore(params, event.newVersion);
-                    });
-                    if (_this.oncreated) {
-                        _this.oncreated(transaction, event);
-                    }
-                } else {
-                    //migration
-                    var createdObjectStores = {};
-                    var droppedObjectStores = {};
-                    var createdIndexes = {};
-                    var droppedIndexes = {};
-                    _this.source.objectStores.forEach(function (params) {
-                        if (params.created) {
-                            if (!(params.created in createdObjectStores)) {
-                                createdObjectStores[params.created] = [];
-                            }
-                            createdObjectStores[params.created].push(params);
-                        }
-                        if (params.dropped) {
-                            if (!(params.dropped in droppedObjectStores)) {
-                                droppedObjectStores[params.dropped] = [];
-                            }
-                            droppedObjectStores[params.dropped].push(params);
-                        }
-                        params.indexes.forEach(function (p) {
-                            if (p.created && (!params.created || p.created > params.created)) {
-                                if (!(p.created in createdIndexes)) {
-                                    createdIndexes[p.created] = [];
-                                }
-                                createdIndexes[p.created].push({ storeName: params.name, index: p });
-                            }
-                            if (p.dropped && (!params.dropped || p.dropped < params.dropped)) {
-                                if (!(p.dropped in droppedIndexes)) {
-                                    droppedIndexes[p.dropped] = [];
-                                }
-                                droppedIndexes[p.dropped].push({ storeName: params.name, index: p });
-                            }
-                        });
-                    });
-                    /*
-                    var versions: number[] = Object.keys(createdObjectStores)
-                    .concat(Object.keys(createdIndexes))
-                    .concat(Object.keys(droppedObjectStores))
-                    .concat(Object.keys(droppedIndexes))
-                    .concat(Object.keys(this.source.migrationHistory)).map((v) => {return parseInt(v)});
-                    versions.filter(function(v, i){ return(v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i); }, versions)
-                    .sort()
-                    .forEach((version: number) => {
-                    // Add new objectStore and Index.
-                    if(version in createdObjectStores){
-                    createdObjectStores[version].forEach((val: ObjectStoreParams) => {
-                    transaction.createObjectStore(val, version);
-                    });
-                    }
-                    if(version in createdIndexes){
-                    createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
-                    transaction.createIndex(val.storeName, val.index);
-                    });
-                    }
-                    // Remove deprecated objectStore and Index.
-                    if(version in droppedObjectStores){
-                    droppedObjectStores[version].forEach((val: ObjectStoreParams) => {
-                    transaction.dropObjectStore(val);
-                    });
-                    }
-                    if(version in createdIndexes){
-                    createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
-                    transaction.dropIndex(val.storeName, val.index);
-                    });
-                    }
-                    // Custom operation
-                    if(version in this.source.migrationHistory){
-                    this.source.migrationHistory[version](transaction, event);
-                    }
-                    });
-                    */
-                }
+                _this.migrationManager.execute(transaction, event);
             };
         }
         OpenDBRequest.prototype.onSuccess = function (onsuccess) {
@@ -273,10 +153,6 @@ var Jaid;
             this.oncreated = oncreated;
             return this;
         };
-        OpenDBRequest.prototype.onMigration = function (migrationHistory) {
-            this.source.migrationHistory = migrationHistory;
-            return this;
-        };
         return OpenDBRequest;
     })();
 
@@ -284,6 +160,10 @@ var Jaid;
         function Migration(manager, version) {
             this.continued = false;
             this.executed = false;
+            this.createdObjectStores = [];
+            this.createdIndexes = [];
+            this.droppedObjectStores = [];
+            this.droppedIndexes = [];
             this.source = manager;
             this.version = version;
         }
@@ -327,50 +207,118 @@ var Jaid;
     })();
 
     var MigrationManager = (function () {
-        function MigrationManager(schema, migrationHistory) {
+        function MigrationManager(source, objectStores, migrationHistory) {
             var _this = this;
             this.versions = {};
             this.versionNumbers = [];
-            schema.forEach(function (params) {
-                if (params.created) {
-                    var obj = _this.get(params.created);
-                    obj.createdObjectStores.push(params);
+            this.source = source;
+            this.objectStores = objectStores;
+            this.objectStores.forEach(function (objectStore) {
+                objectStore = MigrationManager.checkObjectStore(objectStore);
+                if (objectStore.created) {
+                    var obj = _this.get(objectStore.created);
+                    obj.createdObjectStores.push(objectStore);
                 }
-                if (params.dropped) {
-                    var obj = _this.get(params.dropped);
-                    obj.droppedObjectStores.push(params);
+                if (objectStore.dropped) {
+                    var obj = _this.get(objectStore.dropped);
+                    obj.droppedObjectStores.push(objectStore);
                 }
-                params.indexes.forEach(function (p) {
-                    if (p.created && (!params.created || p.created > params.created)) {
-                        var obj = _this.get(p.created);
-                        obj.createdIndexes.push({ storeName: params.name, index: p });
+                objectStore.indexes.forEach(function (index) {
+                    index = MigrationManager.checkIndex(index, objectStore);
+                    if (index.created && (!objectStore.created || index.created > objectStore.created)) {
+                        var obj = _this.get(index.created);
+                        obj.createdIndexes.push({ storeName: objectStore.name, index: index });
                     }
-                    if (p.dropped && (!params.dropped || p.dropped < params.dropped)) {
-                        var obj = _this.get(p.dropped);
-                        obj.droppedIndexes.push({ storeName: params.name, index: p });
+                    if (index.dropped && (!objectStore.dropped || index.dropped < objectStore.dropped)) {
+                        var obj = _this.get(index.dropped);
+                        obj.droppedIndexes.push({ storeName: objectStore.name, index: index });
                     }
                 });
             });
+            Object.keys(migrationHistory).forEach(function (versionStr) {
+                var versionInt = parseInt(versionStr);
+                var obj = _this.get(versionInt);
+                obj.customOperation = migrationHistory[versionInt];
+            });
         }
+        MigrationManager.checkObjectStore = function (objectStore) {
+            if (objectStore.created && objectStore.dropped && objectStore.created >= objectStore.dropped) {
+                throw Error(objectStore.name + ': "dropped" is MUST be greater than "created"');
+            }
+            objectStore.indexes = objectStore.indexes || [];
+            return objectStore;
+        };
+        MigrationManager.checkIndex = function (index, objectStore) {
+            if (!index.name) {
+                // If parameter "name" is empty, make name from keyPath.
+                if (Array.isArray(index.keyPath)) {
+                    index.name = index.keyPath.join('_');
+                } else {
+                    index.name = index.keyPath;
+                }
+            }
+            if (index.created) {
+                if (index.dropped && index.created >= index.dropped) {
+                    throw Error(index.name + ': "dropped" is MUST be greater than "created"');
+                }
+                if (objectStore.created && index.created < objectStore.created) {
+                    throw Error(index.name + ': "created" is MUST be greater than or equal to objectStore\'s "created"');
+                }
+                if (objectStore.dropped && index.created >= objectStore.dropped) {
+                    throw Error(index.name + ': "created" is MUST be lesser than objectStore\'s "dropped"');
+                }
+            }
+            if (index.dropped) {
+                if (objectStore.dropped && index.dropped > objectStore.dropped) {
+                    throw Error(index.name + ': "dropped" is MUST be lesser than or equal to objectStore\'s "created"');
+                }
+                if (objectStore.created && index.dropped <= objectStore.created) {
+                    throw Error(index.name + ': "dropped" is MUST be greater than objectStore\'s "created"');
+                }
+            }
+            return index;
+        };
         MigrationManager.prototype.get = function (version) {
             if (!(version in this.versions)) {
                 this.versions[version] = new Migration(this, version);
             }
             return this.versions[version];
         };
-        MigrationManager.prototype.next = function () {
-            var nextVersion = this.versionNumbers.shift();
-            this.versions[nextVersion].execute(this.transaction);
+        MigrationManager.prototype.initialize = function (version) {
+            var _this = this;
+            this.objectStores.forEach(function (params) {
+                // Exclude "already dropped" or "not yet created" indexes.
+                if ((params.created && params.created > version) || (params.dropped && params.dropped <= version)) {
+                    return;
+                }
+                _this.transaction.createObjectStore(params, version);
+            });
         };
-        MigrationManager.prototype.execute = function (transaction, event) {
-            this.transaction = transaction;
+        MigrationManager.prototype.migration = function (newVersion, oldVersion) {
             this.versionNumbers = Object.keys(this.versions).map(function (v) {
                 return parseInt(v);
             });
             this.versionNumbers = this.versionNumbers.filter(function (v, i) {
-                return (v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i);
+                return (v > oldVersion && v <= newVersion && this.indexOf(v) == i);
             }, this.versionNumbers).sort();
             this.next();
+        };
+        MigrationManager.prototype.next = function () {
+            var nextVersion = this.versionNumbers.shift();
+            if (nextVersion) {
+                this.versions[nextVersion].execute(this.transaction);
+            }
+        };
+        MigrationManager.prototype.execute = function (transaction, event) {
+            this.transaction = transaction;
+            if (event.oldVersion == 0) {
+                //initialize
+                this.initialize(event.newVersion);
+                this.source.oncreated(transaction, event);
+            } else {
+                //migration
+                this.migration(event.newVersion, event.oldVersion);
+            }
         };
         return MigrationManager;
     })();
@@ -389,7 +337,7 @@ var Jaid;
             this.results = {};
             this.requestCounter = 0;
             this.requests = [];
-            this._joinList = [];
+            this.groupList = [];
             this.source = db;
             if (typeof storeNames === "object" && storeNames instanceof IDBTransaction) {
                 this.target = storeNames;
@@ -434,22 +382,23 @@ var Jaid;
         //get requestIdList: number[]{
         //    return Object.keys(this.requests).map((id)=>{parseInt(id)});
         //}
-        TransactionBase.prototype.join = function (requests) {
-            var newJoin = new RequestJoin(requests);
-            this._joinList.push(newJoin);
-            return newJoin;
+        TransactionBase.prototype.grouping = function (requests) {
+            var group = new RequestGroup(this, requests);
+            group.id = this.requestCounter++;
+            this.groupList.push(group);
+            return group;
         };
         TransactionBase.prototype._requestCallback = function (req, result) {
-            this._joinList.forEach(function (join) {
-                if (req.id in join.queue) {
+            this.groupList.forEach(function (group) {
+                if (req.id in group.queue) {
                     if (req.target.error) {
-                        join.errors[req.id] = result;
+                        group.errors[req.id] = result;
                     } else {
-                        join.results[req.id] = result;
+                        group.results[req.id] = result;
                     }
-                    delete join.queue[req.id];
-                    if (Object.keys(join.queue).length == 0) {
-                        join.oncomplete(join.results, join.errors);
+                    delete group.queue[req.id];
+                    if (group.joined) {
+                        group.checkComplete();
                     }
                 }
             });
@@ -528,9 +477,6 @@ var Jaid;
         }
         VersionChangeTransaction.prototype.createObjectStore = function (objectStore, indexVersion) {
             var _this = this;
-            if (!(objectStore instanceof ObjectStore)) {
-                objectStore = new ObjectStore(objectStore);
-            }
             var idbObjectStore = this.source.target.createObjectStore(objectStore.name, { keyPath: objectStore.keyPath, autoIncrement: objectStore.autoIncrement || false });
 
             //create indexes.
@@ -553,9 +499,6 @@ var Jaid;
             } else {
                 var storeName = (typeof objectStore === "string") ? objectStore : objectStore.name;
                 idbObjectStore = this.target.objectStore(storeName);
-            }
-            if (!(index instanceof Index)) {
-                index = new Index(index);
             }
 
             return idbObjectStore.createIndex(index.name, index.keyPath, { unique: index.unique || false, multiEntry: index.multiEntry || false });
@@ -654,6 +597,12 @@ var Jaid;
         RequestWithCursor.prototype.stopCursor = function () {
             this.continueFlag = false;
         };
+        RequestWithCursor.prototype._onstopiteration = function () {
+            this.source._requestCallback(this, this.values);
+            if (this.onstopiteration) {
+                this.onstopiteration(this.values);
+            }
+        };
         RequestWithCursor.prototype.onStopIteration = function (func) {
             var _this = this;
             this.onstopiteration = function (results) {
@@ -670,11 +619,11 @@ var Jaid;
                     onsuccess(result, event);
                     if (_this.continueFlag) {
                         result.continue();
-                    } else if (_this.onstopiteration) {
-                        _this.onstopiteration(_this.values);
+                    } else {
+                        _this._onstopiteration();
                     }
-                } else if (_this.onstopiteration) {
-                    _this.onstopiteration(_this.values);
+                } else {
+                    _this._onstopiteration();
                 }
             };
             return this;
@@ -682,32 +631,63 @@ var Jaid;
         return RequestWithCursor;
     })(Request);
 
-    var RequestJoin = (function () {
-        function RequestJoin(requests) {
+    var RequestGroup = (function () {
+        function RequestGroup(transaction, requests) {
             var _this = this;
+            this.target = { error: false };
+            this.joined = false;
             this.requests = [];
             this.queue = {};
             this.results = {};
             this.errors = {};
+            this.onsuccess = function () {
+            };
             this.oncomplete = function () {
             };
+            this.source = transaction;
             if (requests) {
                 this.requests = requests;
+                this.requests.forEach(function (req) {
+                    _this.queue[req.id] = req;
+                });
             }
-            this.requests.forEach(function (req) {
-                _this.queue[req.id] = req;
-            });
         }
-        RequestJoin.prototype.add = function (request) {
+        RequestGroup.prototype._oncomplete = function () {
+            this.source._requestCallback(this, this.results);
+            this.oncomplete(this.results, this.errors);
+        };
+
+        RequestGroup.prototype.add = function (request) {
             this.requests.push(request);
             this.queue[request.id] = request;
         };
-        RequestJoin.prototype.onComplete = function (complete) {
-            this.oncomplete = complete;
+        RequestGroup.prototype.remove = function (request) {
+            var idx = this.requests.indexOf(request);
+            if (idx != -1) {
+                delete this.requests[idx];
+            }
+            if (request.id in this.queue) {
+                delete this.queue[request.id];
+            }
+        };
+        RequestGroup.prototype.checkComplete = function () {
+            if (Object.keys(this.queue).length == 0) {
+                this._oncomplete();
+            }
+        };
+        RequestGroup.prototype.joinAll = function () {
+            this.joined = true;
+            this.checkComplete();
+        };
+        RequestGroup.prototype.onSuccess = function (onsuccess) {
+            this.onsuccess = onsuccess;
             return this;
         };
-        return RequestJoin;
+        RequestGroup.prototype.onComplete = function (oncomplete) {
+            this.oncomplete = oncomplete;
+            return this;
+        };
+        return RequestGroup;
     })();
-    Jaid.RequestJoin = RequestJoin;
 })(Jaid || (Jaid = {}));
 //# sourceMappingURL=jaid.js.map

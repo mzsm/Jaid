@@ -25,7 +25,11 @@ declare var IDBTransaction: {
 };
 
 module Jaid {
-    export interface IndexParams {
+    /**
+     * interfaces
+     */
+
+    export interface IIndex {
         name?: string;
         keyPath: any;
         unique?: boolean;
@@ -34,24 +38,24 @@ module Jaid {
         dropped?: number;
     }
 
-    export interface ObjectStoreParams {
+    export interface IObjectStore {
         name: string;
         keyPath?: any;
         autoIncrement?: boolean;
-        indexes?: IndexParams[];
+        indexes?: IIndex[];
         created?: number;
         dropped?: number;
     }
 
-    export interface MigrationHistory {
+    export interface IMigrationHistory {
         [version: number]: (transaction: IVersionChangeTransaction, migration: IMigration) => void;
     }
 
     export interface DatabaseParams {
         name?: string;
         version?: number;
-        objectStores?: ObjectStoreParams[];
-        migrationHistory?: MigrationHistory
+        objectStores?: IObjectStore[];
+        migrationHistory?: IMigrationHistory
     }
 
     /**
@@ -61,8 +65,8 @@ module Jaid {
         target: IDBDatabase;
         name: string;
         version: number = 1;
-        objectStores: ObjectStoreParams[] = [];
-        migrationHistory: MigrationHistory = {};
+        objectStores: IObjectStore[] = [];
+        migrationHistory: IMigrationHistory = {};
 
         /**
          * constructor with multi parameters
@@ -71,9 +75,9 @@ module Jaid {
          * @param {string} [name] Name of Database
          * @param {number} [version] Version number
          * @param {Array} [objectStores] List of object stores
-         * @param {MigrationHistory} [migrationHistory] History of migration
+         * @param {IMigrationHistory} [migrationHistory] History of migration
          */
-        constructor(name?: string, version?: number, objectStores?: ObjectStoreParams[], migrationHistory?: MigrationHistory);
+        constructor(name?: string, version?: number, objectStores?: IObjectStore[], migrationHistory?: IMigrationHistory);
         /**
          * constructor with single parameter
          * @class Database
@@ -82,7 +86,7 @@ module Jaid {
          * @param {string} [param.name] Name of Database
          * @param {number} [param.version] Version number
          * @param {Array} [param.objectStores] List of object stores
-         * @param {MigrationHistory} [param.migrationHistory] History of migration
+         * @param {IMigrationHistory} [param.migrationHistory] History of migration
          */
         constructor(param?: DatabaseParams);
         /**
@@ -93,12 +97,12 @@ module Jaid {
          * @param {string} [param.name] (if param is DatabaseParams) Name of Database
          * @param {number} [param.version] (if param is DatabaseParams) Version number
          * @param {Array} [param.objectStores] (if param is DatabaseParams) List of object stores
-         * @param {MigrationHistory} [param.migrationHistory] (if param is DatabaseParams) History of migration
+         * @param {IMigrationHistory} [param.migrationHistory] (if param is DatabaseParams) History of migration
          * @param {number} [version] (if param is string) Version number
          * @param {Array} [objectStores] (if param is string) List of object stores
-         * @param {MigrationHistory} [migrationHistory] (if param is string) History of migration
+         * @param {IMigrationHistory} [migrationHistory] (if param is string) History of migration
          */
-        constructor(param?: any, version?: number, objectStores?: ObjectStoreParams[], migrationHistory?: MigrationHistory){
+        constructor(param?: any, version?: number, objectStores?: IObjectStore[], migrationHistory?: IMigrationHistory){
             if(typeof param === "string"){
                 this.name = param;
                 this.version = version || this.version;
@@ -203,54 +207,6 @@ module Jaid {
     }
 
     /**
-     * object store.
-     */
-    export class ObjectStore implements ObjectStoreParams{
-        name: string;
-        keyPath: string;
-        autoIncrement: boolean = false;
-        indexes: IndexParams[] = [];
-        created: number = 0;
-
-        constructor(params: ObjectStoreParams){
-            this.name = params.name || this.name;
-            this.keyPath = params.keyPath || this.keyPath;
-            if(typeof params.autoIncrement !== "undefined"){
-                this.autoIncrement = params.autoIncrement;
-            }
-            if(typeof params.indexes !== "undefined"){
-                this.indexes = params.indexes;
-            }
-            this.created = params.created || this.created;
-        }
-    }
-
-    /**
-     * index.
-     */
-    export class Index implements IndexParams{
-        name: string;
-        keyPath: any;
-        unique = false;
-        multiEntry = false;
-        created: number = 0;
-        dropped: number;
-
-        constructor(params: IndexParams){
-            this.name = params.name || this.name;
-            this.keyPath = params.keyPath || this.keyPath;
-            if(typeof params.unique !== "undefined"){
-                this.unique = params.unique;
-            }
-            if(typeof params.unique !== "undefined"){
-                this.multiEntry = params.multiEntry;
-            }
-            this.created = params.created;
-            this.dropped = params.dropped;
-        }
-    }
-
-    /**
      * open DB request
      */
     export interface IOpenDBRequest{
@@ -264,7 +220,6 @@ module Jaid {
         onError(onerror: (error: DOMError, event: Event) => void): IOpenDBRequest;
         onBlocked(onblocked: (event: Event) => void): IOpenDBRequest;
         onCreated(oncreated: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void): IOpenDBRequest;
-        onMigration(migrationHistory: MigrationHistory): IOpenDBRequest;
     }
 
     class OpenDBRequest implements IOpenDBRequest{
@@ -274,10 +229,17 @@ module Jaid {
         onerror: (error: DOMError, event: Event) => void;
         onblocked: (event: Event) => void;
         oncreated: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
+        private migrationManager: MigrationManager;
 
         constructor(db: Database, opener: IDBOpenDBRequest){
             this.source = db;
             this.target = opener;
+            try{
+                this.migrationManager = new MigrationManager(this, this.source.objectStores, this.source.migrationHistory);
+            }catch(e){
+                console.log(e, e.stack);
+            }
+
             opener.onsuccess = (event: Event) => {
                 this.source.target = <IDBDatabase>(<IDBOpenDBRequest>event.target).result;
                 this.onsuccess(event);
@@ -293,91 +255,7 @@ module Jaid {
                 var req = <IDBOpenDBRequest>event.target;
                 this.source.target = <IDBDatabase>req.result;
                 var transaction: IVersionChangeTransaction = new VersionChangeTransaction<IVersionChangeTransaction>(this.source, req.transaction);
-                if(event.oldVersion == 0){
-                    //initialize
-                    this.source.objectStores.forEach((params: ObjectStoreParams) => {
-                        // Exclude "already dropped" or "not yet created" indexes.
-                        if((params.created && params.created > event.newVersion) ||
-                            (params.dropped && params.dropped <= event.newVersion)){
-                            return;
-                        }
-                        transaction.createObjectStore(params, event.newVersion);
-                    });
-                    if(this.oncreated){
-                        this.oncreated(transaction, event);
-                    }
-                }else{
-                    //migration
-                    var createdObjectStores: {[ver: number]: ObjectStoreParams[]} = {};
-                    var droppedObjectStores: {[ver: number]: ObjectStoreParams[]} = {};
-                    var createdIndexes: {[ver: number]: {storeName: string; index: IndexParams}[]} = {};
-                    var droppedIndexes: {[ver: number]: {storeName: string; index: IndexParams}[]} = {};
-                    this.source.objectStores.forEach((params: ObjectStoreParams) => {
-                        if(params.created) {
-                            if (!(params.created in createdObjectStores)) {
-                                createdObjectStores[params.created] = [];
-                            }
-                            createdObjectStores[params.created].push(params);
-                        }
-                        if(params.dropped){
-                            if (!(params.dropped in droppedObjectStores)) {
-                                droppedObjectStores[params.dropped] = [];
-                            }
-                            droppedObjectStores[params.dropped].push(params);
-                        }
-                        params.indexes.forEach((p: IndexParams) => {
-                            if(p.created && (!params.created || p.created > params.created)) {
-                                if (!(p.created in createdIndexes)) {
-                                    createdIndexes[p.created] = [];
-                                }
-                                createdIndexes[p.created].push({storeName: params.name, index: p});
-                            }
-                            if(p.dropped && (!params.dropped || p.dropped < params.dropped)) {
-                                if (!(p.dropped in droppedIndexes)) {
-                                    droppedIndexes[p.dropped] = [];
-                                }
-                                droppedIndexes[p.dropped].push({storeName: params.name, index: p});
-                            }
-                        });
-                    });
-                    /*
-                    var versions: number[] = Object.keys(createdObjectStores)
-                        .concat(Object.keys(createdIndexes))
-                        .concat(Object.keys(droppedObjectStores))
-                        .concat(Object.keys(droppedIndexes))
-                        .concat(Object.keys(this.source.migrationHistory)).map((v) => {return parseInt(v)});
-                    versions.filter(function(v, i){ return(v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i); }, versions)
-                        .sort()
-                        .forEach((version: number) => {
-                            // Add new objectStore and Index.
-                            if(version in createdObjectStores){
-                                createdObjectStores[version].forEach((val: ObjectStoreParams) => {
-                                    transaction.createObjectStore(val, version);
-                                });
-                            }
-                            if(version in createdIndexes){
-                                createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
-                                    transaction.createIndex(val.storeName, val.index);
-                                });
-                            }
-                            // Remove deprecated objectStore and Index.
-                            if(version in droppedObjectStores){
-                                droppedObjectStores[version].forEach((val: ObjectStoreParams) => {
-                                    transaction.dropObjectStore(val);
-                                });
-                            }
-                            if(version in createdIndexes){
-                                createdIndexes[version].forEach((val: {storeName: string; index: IndexParams}) => {
-                                    transaction.dropIndex(val.storeName, val.index);
-                                });
-                            }
-                            // Custom operation
-                            if(version in this.source.migrationHistory){
-                                this.source.migrationHistory[version](transaction, event);
-                            }
-                        });
-                    */
-                }
+                this.migrationManager.execute(transaction, event);
             };
         }
         onSuccess(onsuccess: (event: Event) => void): OpenDBRequest{
@@ -396,10 +274,6 @@ module Jaid {
             this.oncreated = oncreated;
             return this;
         }
-        onMigration(migrationHistory: MigrationHistory): OpenDBRequest{
-            this.source.migrationHistory = migrationHistory;
-            return this;
-        }
     }
 
     export interface IMigration{
@@ -411,10 +285,10 @@ module Jaid {
         continued: boolean = false;
         executed: boolean = false;
         version: number;
-        createdObjectStores: ObjectStoreParams[];
-        createdIndexes: {storeName: string; index: IndexParams}[];
-        droppedObjectStores: ObjectStoreParams[];
-        droppedIndexes: {storeName: string; index: IndexParams}[];
+        createdObjectStores: IObjectStore[] = [];
+        createdIndexes: {storeName: string; index: IIndex}[] = [];
+        droppedObjectStores: IObjectStore[] = [];
+        droppedIndexes: {storeName: string; index: IIndex}[] = [];
         customOperation: (transaction: IVersionChangeTransaction, migration: IMigration) => void;
 
         constructor(manager: MigrationManager, version: number){
@@ -434,17 +308,17 @@ module Jaid {
                 console.error("Already called.");
                 return;
             }
-            this.createdObjectStores.forEach((val: ObjectStoreParams) => {
+            this.createdObjectStores.forEach((val: IObjectStore) => {
                 transaction.createObjectStore(val, this.version);
             });
-            this.createdIndexes.forEach((val: {storeName: string; index: IndexParams}) => {
+            this.createdIndexes.forEach((val: {storeName: string; index: IIndex}) => {
                 transaction.createIndex(val.storeName, val.index);
             });
             // Remove deprecated objectStore and Index.
-            this.droppedObjectStores.forEach((val: ObjectStoreParams) => {
+            this.droppedObjectStores.forEach((val: IObjectStore) => {
                 transaction.dropObjectStore(val);
             });
-            this.createdIndexes.forEach((val: {storeName: string; index: IndexParams}) => {
+            this.createdIndexes.forEach((val: {storeName: string; index: IIndex}) => {
                 transaction.dropIndex(val.storeName, val.index);
             });
             // Custom operation
@@ -457,48 +331,117 @@ module Jaid {
     }
 
     class MigrationManager {
-        versions: {[version: number]: Migration} = {};
-        versionNumbers: number[] = [];
-        transaction: IVersionChangeTransaction;
+        private source: IOpenDBRequest;
+        private versions: {[version: number]: Migration} = {};
+        private versionNumbers: number[] = [];
+        private objectStores: IObjectStore[];
+        private transaction: IVersionChangeTransaction;
 
-        constructor(schema: ObjectStoreParams[], migrationHistory: MigrationHistory){
-            schema.forEach((params: ObjectStoreParams) => {
-                if(params.created) {
-                    var obj = this.get(params.created);
-                    obj.createdObjectStores.push(params);
+        constructor(source: IOpenDBRequest, objectStores: IObjectStore[], migrationHistory: IMigrationHistory){
+            this.source = source;
+            this.objectStores = objectStores;
+            this.objectStores.forEach((objectStore: IObjectStore) => {
+                objectStore = MigrationManager.checkObjectStore(objectStore);
+                if(objectStore.created) {
+                    var obj = this.get(objectStore.created);
+                    obj.createdObjectStores.push(objectStore);
                 }
-                if(params.dropped){
-                    var obj = this.get(params.dropped);
-                    obj.droppedObjectStores.push(params);
+                if(objectStore.dropped){
+                    var obj = this.get(objectStore.dropped);
+                    obj.droppedObjectStores.push(objectStore);
                 }
-                params.indexes.forEach((p: IndexParams) => {
-                    if(p.created && (!params.created || p.created > params.created)) {
-                        var obj = this.get(p.created);
-                        obj.createdIndexes.push({storeName: params.name, index: p});
+                objectStore.indexes.forEach((index: IIndex) => {
+                    index = MigrationManager.checkIndex(index, objectStore);
+                    if(index.created && (!objectStore.created || index.created > objectStore.created)) {
+                        var obj = this.get(index.created);
+                        obj.createdIndexes.push({storeName: objectStore.name, index: index});
                     }
-                    if(p.dropped && (!params.dropped || p.dropped < params.dropped)) {
-                        var obj = this.get(p.dropped);
-                        obj.droppedIndexes.push({storeName: params.name, index: p});
+                    if(index.dropped && (!objectStore.dropped || index.dropped < objectStore.dropped)) {
+                        var obj = this.get(index.dropped);
+                        obj.droppedIndexes.push({storeName: objectStore.name, index: index});
                     }
                 });
             });
+            Object.keys(migrationHistory).forEach((versionStr: string) => {
+                var versionInt = parseInt(versionStr);
+                var obj = this.get(versionInt);
+                obj.customOperation = migrationHistory[versionInt];
+            });
         }
-
-        get(version: number): Migration{
+        private static checkObjectStore(objectStore: IObjectStore): IObjectStore{
+            if(objectStore.created && objectStore.dropped && objectStore.created >= objectStore.dropped){
+                throw Error(objectStore.name + ': "dropped" is MUST be greater than "created"');
+            }
+            objectStore.indexes = objectStore.indexes || [];
+            return objectStore
+        }
+        private static checkIndex(index: IIndex, objectStore: IObjectStore): IIndex{
+            if(!index.name){
+                // If parameter "name" is empty, make name from keyPath.
+                if(Array.isArray(index.keyPath)){
+                    index.name = index.keyPath.join('_');
+                }else{
+                    index.name = <string>index.keyPath;
+                }
+            }
+            if(index.created){
+                if(index.dropped && index.created >= index.dropped) {
+                    throw Error(index.name + ': "dropped" is MUST be greater than "created"');
+                }
+                if(objectStore.created && index.created < objectStore.created){
+                    throw Error(index.name + ': "created" is MUST be greater than or equal to objectStore\'s "created"');
+                }
+                if(objectStore.dropped && index.created >= objectStore.dropped){
+                    throw Error(index.name + ': "created" is MUST be lesser than objectStore\'s "dropped"');
+                }
+            }
+            if(index.dropped){
+                if(objectStore.dropped && index.dropped > objectStore.dropped) {
+                    throw Error(index.name + ': "dropped" is MUST be lesser than or equal to objectStore\'s "created"');
+                }
+                if(objectStore.created && index.dropped <= objectStore.created){
+                    throw Error(index.name + ': "dropped" is MUST be greater than objectStore\'s "created"');
+                }
+            }
+            return index;
+        }
+        private get(version: number): Migration{
             if(!(version in this.versions)){
                 this.versions[version] = new Migration(this, version);
             }
             return this.versions[version];
         }
+        private initialize(version: number){
+            this.objectStores.forEach((params: IObjectStore) => {
+                // Exclude "already dropped" or "not yet created" indexes.
+                if((params.created && params.created > version) ||
+                    (params.dropped && params.dropped <= version)){
+                    return;
+                }
+                this.transaction.createObjectStore(params, version);
+            });
+        }
+        private migration(newVersion: number, oldVersion: number){
+            this.versionNumbers = Object.keys(this.versions).map((v) => {return parseInt(v)});
+            this.versionNumbers = this.versionNumbers.filter(function(v, i){ return(v > oldVersion && v <= newVersion && this.indexOf(v) == i); }, this.versionNumbers).sort();
+            this.next();
+        }
         next(){
-            var nextVersion: number =this.versionNumbers.shift();
-            (<Migration>this.versions[nextVersion]).execute(this.transaction);
+            var nextVersion: number = this.versionNumbers.shift();
+            if(nextVersion){
+                (<Migration>this.versions[nextVersion]).execute(this.transaction);
+            }
         }
         execute(transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent){
             this.transaction = transaction;
-            this.versionNumbers = Object.keys(this.versions).map((v) => {return parseInt(v)});
-            this.versionNumbers = this.versionNumbers.filter(function(v, i){ return(v > event.oldVersion && v <= event.newVersion && this.indexOf(v) == i); }, this.versionNumbers).sort();
-            this.next();
+            if(event.oldVersion == 0){
+                //initialize
+                this.initialize(event.newVersion);
+                this.source.oncreated(transaction, event);
+            }else{
+                //migration
+                this.migration(event.newVersion, event.oldVersion);
+            }
         }
     }
 
@@ -517,8 +460,8 @@ module Jaid {
         onComplete(complete: Function): Transaction;
         onError(error: Function): Transaction;
         onAbort(abort: Function): Transaction;
-        join(requests?: IRequest[]): RequestJoin;
-        _requestCallback(req: IRequest, result: any): void;
+        grouping(requests?: IRequestBase[]): IRequestGroup;
+        _requestCallback(req: IRequestBase, result: any): void;
 
         abort(): void;
     }
@@ -531,8 +474,8 @@ module Jaid {
         onabort: Function = function(){};
         results: {[id: number]: any} = {};
         requestCounter: number = 0;
-        requests: any[] = [];
-        _joinList: any[] = [];
+        requests: IRequestBase[] = [];
+        private groupList: IRequestGroup[] = [];
 
         constructor(db: Database, storeNames?: string, mode?: string);
         constructor(db: Database, storeNames?: string[], mode?: string);
@@ -582,22 +525,23 @@ module Jaid {
         //get requestIdList: number[]{
         //    return Object.keys(this.requests).map((id)=>{parseInt(id)});
         //}
-        join(requests?: IRequest[]): RequestJoin{
-            var newJoin = new RequestJoin(requests);
-            this._joinList.push(newJoin);
-            return newJoin;
+        grouping(requests?: IRequestBase[]): RequestGroup{
+            var group: RequestGroup = new RequestGroup(<ITransactionBase><any>this, requests);
+            group.id = this.requestCounter++;
+            this.groupList.push(group);
+            return group;
         }
-        _requestCallback(req: IRequest, result: any): void{
-            this._joinList.forEach((join: RequestJoin) => {
-                if(req.id in join.queue){
+        _requestCallback(req: IRequestBase, result: any): void{
+            this.groupList.forEach((group: RequestGroup) => {
+                if(req.id in group.queue){
                     if(req.target.error){
-                        join.errors[req.id] = <DOMError>result;
+                        group.errors[req.id] = <DOMError>result;
                     }else{
-                        join.results[req.id] = result;
+                        group.results[req.id] = result;
                     }
-                    delete join.queue[req.id];
-                    if(Object.keys(join.queue).length == 0){
-                        join.oncomplete(join.results, join.errors);
+                    delete group.queue[req.id];
+                    if(group.joined){
+                        group.checkComplete();
                     }
                 }
             });
@@ -635,14 +579,14 @@ module Jaid {
         }
         findByKey(storeName: string, range: any, direction: string): IRequestWithCursor{
             var objectStore: IDBObjectStore = this.target.objectStore(storeName);
-            var req = <IRequestWithCursor>new RequestWithCursor(objectStore.openCursor(range, direction));
+            var req = <IRequestWithCursor><any>new RequestWithCursor(objectStore.openCursor(range, direction));
             this._registerRequest(req);
             return req;
         }
         findByIndex(storeName: string, indexName:string, range: any, direction: string): IRequestWithCursor{
             var objectStore: IDBObjectStore = this.target.objectStore(storeName);
             var index: IDBIndex = objectStore.index(indexName);
-            var req = <IRequestWithCursor>new RequestWithCursor(index.openCursor(range, direction));
+            var req = <IRequestWithCursor><any>new RequestWithCursor(index.openCursor(range, direction));
             this._registerRequest(req);
             return req;
         }
@@ -690,21 +634,21 @@ module Jaid {
      * Version change transaction
      */
     export interface _IVersionChangeTransaction<VersionChangeTransaction> extends _IReadWriteTransaction<VersionChangeTransaction> {
-        createObjectStore(objectStore: ObjectStoreParams, indexVersion?: number): IDBObjectStore;
-        createIndex(objectStore: string, index: IndexParams): IDBIndex;
-        createIndex(objectStore: ObjectStoreParams, index: IndexParams): IDBIndex;
-        createIndex(objectStore: IDBObjectStore, index: IndexParams): IDBIndex;
+        createObjectStore(objectStore: IObjectStore, indexVersion?: number): IDBObjectStore;
+        createIndex(objectStore: string, index: IIndex): IDBIndex;
+        createIndex(objectStore: IObjectStore, index: IIndex): IDBIndex;
+        createIndex(objectStore: IDBObjectStore, index: IIndex): IDBIndex;
         dropObjectStore(objectStore: string): void;
-        dropObjectStore(objectStore: ObjectStoreParams): void;
+        dropObjectStore(objectStore: IObjectStore): void;
         dropObjectStore(objectStore: IDBObjectStore): void;
-        dropIndex(objectStore: string, index: IndexParams): void;
-        dropIndex(objectStore: ObjectStoreParams, index: IndexParams): void;
-        dropIndex(objectStore: IDBObjectStore, index: IndexParams): void;
+        dropIndex(objectStore: string, index: IIndex): void;
+        dropIndex(objectStore: IObjectStore, index: IIndex): void;
+        dropIndex(objectStore: IDBObjectStore, index: IIndex): void;
         dropIndex(objectStore: string, index: string): void;
-        dropIndex(objectStore: ObjectStoreParams, index: string): void;
+        dropIndex(objectStore: IObjectStore, index: string): void;
         dropIndex(objectStore: IDBObjectStore, index: string): void;
         dropIndex(objectStore: string, index: IDBIndex): void;
-        dropIndex(objectStore: ObjectStoreParams, index: IDBIndex): void;
+        dropIndex(objectStore: IObjectStore, index: IDBIndex): void;
         dropIndex(objectStore: IDBObjectStore, index: IDBIndex): void;
     }
     export interface IVersionChangeTransaction extends _IVersionChangeTransaction<IVersionChangeTransaction> {}
@@ -713,15 +657,11 @@ module Jaid {
             super(db, transaction);
         }
 
-        createObjectStore(objectStore: ObjectStoreParams, indexVersion?: number): IDBObjectStore{
-            if(!(objectStore instanceof ObjectStore)){
-                objectStore = new ObjectStore(objectStore);
-            }
+        createObjectStore(objectStore: IObjectStore, indexVersion?: number): IDBObjectStore{
             var idbObjectStore: IDBObjectStore = this.source.target.createObjectStore(objectStore.name, {keyPath: objectStore.keyPath, autoIncrement: objectStore.autoIncrement||false});
-
             //create indexes.
             if(typeof indexVersion === 'number'){
-                objectStore.indexes.forEach((index: IndexParams) => {
+                objectStore.indexes.forEach((index: IIndex) => {
                     // Exclude "already dropped" or "not yet created" indexes.
                     if((index.created && index.created > indexVersion) ||
                         (index.dropped && index.dropped <= indexVersion)){
@@ -732,10 +672,10 @@ module Jaid {
             }
             return idbObjectStore;
         }
-        createIndex(objectStore: string, index: IndexParams): IDBIndex;
-        createIndex(objectStore: ObjectStoreParams, index: IndexParams): IDBIndex;
-        createIndex(objectStore: IDBObjectStore, index: IndexParams): IDBIndex;
-        createIndex(objectStore: any, index: IndexParams): IDBIndex{
+        createIndex(objectStore: string, index: IIndex): IDBIndex;
+        createIndex(objectStore: IObjectStore, index: IIndex): IDBIndex;
+        createIndex(objectStore: IDBObjectStore, index: IIndex): IDBIndex;
+        createIndex(objectStore: any, index: IIndex): IDBIndex{
             var idbObjectStore: IDBObjectStore;
             if(typeof objectStore === "function" && objectStore instanceof IDBObjectStore){
                 idbObjectStore = objectStore;
@@ -743,14 +683,11 @@ module Jaid {
                 var storeName = (typeof objectStore === "string")? objectStore: objectStore.name;
                 idbObjectStore = this.target.objectStore(storeName);
             }
-            if(!(index instanceof Index)){
-                index = new Index(index);
-            }
 
             return idbObjectStore.createIndex(index.name, index.keyPath, {unique: index.unique||false, multiEntry: index.multiEntry||false});
         }
         dropObjectStore(objectStore: string): void;
-        dropObjectStore(objectStore: ObjectStoreParams): void;
+        dropObjectStore(objectStore: IObjectStore): void;
         dropObjectStore(objectStore: IDBObjectStore): void;
         dropObjectStore(objectStore: any): void{
             var name: string;
@@ -761,14 +698,14 @@ module Jaid {
             }
             this.source.target.deleteObjectStore(name);
         }
-        dropIndex(objectStore: string, index: IndexParams): void;
-        dropIndex(objectStore: ObjectStoreParams, index: IndexParams): void;
-        dropIndex(objectStore: IDBObjectStore, index: IndexParams): void;
+        dropIndex(objectStore: string, index: IIndex): void;
+        dropIndex(objectStore: IObjectStore, index: IIndex): void;
+        dropIndex(objectStore: IDBObjectStore, index: IIndex): void;
         dropIndex(objectStore: string, index: string): void;
-        dropIndex(objectStore: ObjectStoreParams, index: string): void;
+        dropIndex(objectStore: IObjectStore, index: string): void;
         dropIndex(objectStore: IDBObjectStore, index: string): void;
         dropIndex(objectStore: string, index: IDBIndex): void;
-        dropIndex(objectStore: ObjectStoreParams, index: IDBIndex): void;
+        dropIndex(objectStore: IObjectStore, index: IDBIndex): void;
         dropIndex(objectStore: IDBObjectStore, index: IDBIndex): void;
         dropIndex(objectStore: any, index: any): void{
             var idbObjectStore: IDBObjectStore;
@@ -806,9 +743,13 @@ module Jaid {
     /**
      * requests
      */
-    export interface _IRequest<Req> {
+    export interface IRequestBase{
         id: number;
         source: ITransactionBase;
+        target: {error: any};
+    }
+
+    export interface _IRequest<Req> extends IRequestBase{
         target: IDBRequest;
 
         onSuccess(onsuccess: (result: any, event: Event) => any): Req;
@@ -871,6 +812,12 @@ module Jaid {
         stopCursor(): void{
             this.continueFlag = false;
         }
+        private _onstopiteration(): void {
+            this.source._requestCallback(<IRequest><any>this, this.values);
+            if(this.onstopiteration){
+                this.onstopiteration(this.values);
+            }
+        }
         onStopIteration(func: (results: any[]) => void): T{
             this.onstopiteration = (results: any) => {
                 func(results);
@@ -885,39 +832,77 @@ module Jaid {
                     onsuccess(result, event);
                     if(this.continueFlag){
                         result.continue();
-                    }else if(this.onstopiteration){
-                        this.onstopiteration(this.values);
+                    }else{
+                        this._onstopiteration();
                     }
-                }else if(this.onstopiteration){
-                    this.onstopiteration(this.values);
+                }else{
+                    this._onstopiteration();
                 }
             };
             return <T><any>this;
         }
     }
 
-    export class RequestJoin{
-        requests: IRequest[] = [];
-        queue: {[id: number]: IRequest} = {};
+    export interface IRequestGroup extends IRequestBase{
+        add(request: IRequestBase): void;
+        remove(request: IRequestBase): void;
+        joinAll(): void;
+        onComplete(complete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): IRequestGroup;
+    }
+
+    class RequestGroup implements IRequestGroup{
+        id: number;
+        source: ITransactionBase;
+        target: {error: any} = {error: false};
+        joined: boolean = false;
+        requests: IRequestBase[] = [];
+        queue: {[id: number]: IRequestBase} = {};
         results: {[id: number]: any} = {};
         errors: {[id: number]: DOMError} = {};
-
+        onsuccess: (result: any, request: IRequestBase) => void = function(){};
         oncomplete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void = function(){};
+        _oncomplete (): void{
+            this.source._requestCallback(this, this.results);
+            this.oncomplete(this.results, this.errors);
+        }
 
-        constructor(requests?: IRequest[]){
+        constructor(transaction: ITransactionBase, requests?: any[]){
+            this.source = transaction;
             if(requests){
                 this.requests = requests;
+                this.requests.forEach((req: IRequestBase) =>{
+                    this.queue[req.id] = req;
+                });
             }
-            this.requests.forEach((req: IRequest) =>{
-                this.queue[req.id] = req;
-            });
         }
-        add(request: IRequest){
+        add(request: IRequestBase): void{
             this.requests.push(request);
             this.queue[request.id] = request;
         }
-        onComplete(complete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): RequestJoin{
-            this.oncomplete = complete;
+        remove(request: IRequestBase): void{
+            var idx = this.requests.indexOf(request);
+            if(idx != -1){
+                delete this.requests[idx];
+            }
+            if(request.id in this.queue){
+                delete this.queue[request.id];
+            }
+        }
+        checkComplete(): void{
+            if(Object.keys(this.queue).length == 0){
+                this._oncomplete();
+            }
+        }
+        joinAll(): void{
+            this.joined = true;
+            this.checkComplete();
+        }
+        onSuccess(onsuccess: (result: any, request: IRequestBase) => void): RequestGroup{
+            this.onsuccess = onsuccess;
+            return this;
+        }
+        onComplete(oncomplete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): RequestGroup{
+            this.oncomplete = oncomplete;
             return this;
         }
     }
