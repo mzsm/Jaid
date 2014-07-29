@@ -1,4 +1,5 @@
 .idea/
 bower_components/
-*.d.ts
+node_modules/
+d.ts/
 *.iml

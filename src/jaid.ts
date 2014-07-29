@@ -3,7 +3,7 @@
  *
  * @version 0.0.1a
  * @author mzsm j@mzsm.me
- * @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
+ * @license The MIT License
  */
 //var indexedDB = window.indexedDB;
 "use strict";
@@ -30,20 +30,55 @@ module Jaid {
      */
 
     export interface IIndex {
+        /**
+         * Name of Index <br> インデックス名
+         */
         name?: string;
+        /**
+         * Property name of Index <br> インデックスを張るkeyPath
+         */
         keyPath: any;
+        /**
+         * Unique constraint <br> ユニーク制約
+         */
         unique?: boolean;
         multiEntry?: boolean;
+        /**
+         * インデックスが作成されたDBバージョン(マイグレーション時に使用)
+         */
         created?: number;
+        /**
+         * インデックスが削除されたDBバージョン(マイグレーション時に使用)
+         */
         dropped?: number;
     }
 
     export interface IObjectStore {
+        /**
+         * Name of objectStore <br> オブジェクトストア名
+         */
         name: string;
+        /**
+         * Property name (or those list) of Primary key <br>
+         * 主キーとして扱うプロパティ名(またはその配列)
+         */
         keyPath?: any;
+        /**
+         * Use auto increment in primary key <br>
+         * 主キーの自動採番を使用するかどうか
+         */
         autoIncrement?: boolean;
+        /**
+         * オブジェクトストアに含まれるインデックスの配列
+         */
         indexes?: IIndex[];
+        /**
+         * オブジェクトストアが作成されたDBバージョン(マイグレーション時に使用)
+         */
         created?: number;
+        /**
+         * オブジェクトストアが削除されたDBバージョン(マイグレーション時に使用)
+         */
         dropped?: number;
     }
 
@@ -69,20 +104,23 @@ module Jaid {
         migrationHistory: IMigrationHistory = {};
 
         /**
-         * constructor with multi parameters
+         * constructor with multi parameters <br>
+         * データベース名、バージョン、オブジェクトストア、マイグレーション履歴を別々に指定します
          * @class Database
          * @constructor
-         * @param {string} [name] Name of Database
-         * @param {number} [version] Version number
-         * @param {Array} [objectStores] List of object stores
-         * @param {IMigrationHistory} [migrationHistory] History of migration
+         * @param name Name of Database <br> データベース名
+         * @param version Version number <br> バージョン番号
+         * @param objectStores List of object stores <br> オブジェクトストアの配列
+         * @param migrationHistory History of migration <br> マイグレーション履歴
          */
         constructor(name?: string, version?: number, objectStores?: IObjectStore[], migrationHistory?: IMigrationHistory);
         /**
-         * constructor with single parameter
+         * constructor with single parameter <br>
+         * データベース名、バージョン、オブジェクトストア、マイグレーション履歴を単一のオブジェクト内で指定します
          * @class Database
          * @constructor
          * @param {DatabaseParams} [param] Dictionary of name, version, objectStores list and migrationHistory
+         * データベース名、バージョン、オブジェクトストア、マイグレーション履歴を含むオブジェクト
          * @param {string} [param.name] Name of Database
          * @param {number} [param.version] Version number
          * @param {Array} [param.objectStores] List of object stores
@@ -90,10 +128,10 @@ module Jaid {
          */
         constructor(param?: DatabaseParams);
         /**
-         * constructor with single or multi parameter(s)
+         * constructor
          * @class Database
          * @constructor
-         * @param {any} [param] Name of database, or Dictionary of name, version, objectStores list and migrationHistory
+         * @param {string or Object} [param] Name of database, or Dictionary of name, version, objectStores list and migrationHistory
          * @param {string} [param.name] (if param is DatabaseParams) Name of Database
          * @param {number} [param.version] (if param is DatabaseParams) Version number
          * @param {Array} [param.objectStores] (if param is DatabaseParams) List of object stores
@@ -469,7 +507,7 @@ module Jaid {
     class TransactionBase<T> implements _ITransactionBase<T> {
         source: Database;
         target: IDBTransaction;
-        oncomplete: Function = function(){};
+        oncomplete: (results: any) => any = function (results: any){};
         onerror: Function = function(){};
         onabort: Function = function(){};
         results: {[id: number]: any} = {};
@@ -507,7 +545,7 @@ module Jaid {
             this.requests.push(request);
             return <T><any>this;
         }
-        onComplete(complete: Function): T{
+        onComplete(complete: (results: any) => any): T{
             this.oncomplete = complete;
             return <T><any>this;
         }
@@ -580,14 +618,14 @@ module Jaid {
         findByKey(storeName: string, range: any, direction: string): IRequestWithCursor{
             var objectStore: IDBObjectStore = this.target.objectStore(storeName);
             var req = <IRequestWithCursor><any>new RequestWithCursor(objectStore.openCursor(range, direction));
-            this._registerRequest(req);
+            this._registerRequest(<IRequest>req);
             return req;
         }
         findByIndex(storeName: string, indexName:string, range: any, direction: string): IRequestWithCursor{
             var objectStore: IDBObjectStore = this.target.objectStore(storeName);
             var index: IDBIndex = objectStore.index(indexName);
             var req = <IRequestWithCursor><any>new RequestWithCursor(index.openCursor(range, direction));
-            this._registerRequest(req);
+            this._registerRequest(<IRequest>req);
             return req;
         }
     }
@@ -859,8 +897,9 @@ module Jaid {
         queue: {[id: number]: IRequestBase} = {};
         results: {[id: number]: any} = {};
         errors: {[id: number]: DOMError} = {};
-        onsuccess: (result: any, request: IRequestBase) => void = function(){};
-        oncomplete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void = function(){};
+        onsuccess: (result: any, request: IRequestBase) => any = function(){};
+        oncomplete: (results?: {[id: number]: any}, errors?: {[id: number]: DOMError}) => any =
+            function(results?: {[id: number]: any}, errors?: {[id: number]: DOMError}){};
         _oncomplete (): void{
             this.source._requestCallback(this, this.results);
             this.oncomplete(this.results, this.errors);

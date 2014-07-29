@@ -22,10 +22,10 @@ var Jaid;
     */
     var Database = (function () {
         /**
-        * constructor with single or multi parameter(s)
+        * constructor
         * @class Database
         * @constructor
-        * @param {any} [param] Name of database, or Dictionary of name, version, objectStores list and migrationHistory
+        * @param {string or Object} [param] Name of database, or Dictionary of name, version, objectStores list and migrationHistory
         * @param {string} [param.name] (if param is DatabaseParams) Name of Database
         * @param {number} [param.version] (if param is DatabaseParams) Version number
         * @param {Array} [param.objectStores] (if param is DatabaseParams) List of object stores
@@ -328,7 +328,7 @@ var Jaid;
     var TransactionBase = (function () {
         function TransactionBase(db, storeNames, mode) {
             var _this = this;
-            this.oncomplete = function () {
+            this.oncomplete = function (results) {
             };
             this.onerror = function () {
             };
@@ -642,7 +642,7 @@ var Jaid;
             this.errors = {};
             this.onsuccess = function () {
             };
-            this.oncomplete = function () {
+            this.oncomplete = function (results, errors) {
             };
             this.source = transaction;
             if (requests) {
