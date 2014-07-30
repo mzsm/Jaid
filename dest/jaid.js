@@ -3,7 +3,7 @@
 *
 * @version 0.0.1a
 * @author mzsm j@mzsm.me
-* @license <a href="http://www.opensource.org/licenses/mit-license.php">The MIT License</a>
+* @license The MIT License
 */
 //var indexedDB = window.indexedDB;
 "use strict";
@@ -13,46 +13,41 @@ var __extends = this.__extends || function (d, b) {
     __.prototype = b.prototype;
     d.prototype = new __();
 };
+/**
+* Jaid module
+*/
 var Jaid;
 (function (Jaid) {
     
 
+    
+
     /**
-    * Database Class
+    * Database Class <br>
+    *     Jaidを使用する上で基幹となるクラス<br>
+    *     データベースとの接続や、トランザクションの開始はこのクラスから呼び出す
     */
     var Database = (function () {
-        /**
-        * constructor
-        * @class Database
-        * @constructor
-        * @param {string or Object} [param] Name of database, or Dictionary of name, version, objectStores list and migrationHistory
-        * @param {string} [param.name] (if param is DatabaseParams) Name of Database
-        * @param {number} [param.version] (if param is DatabaseParams) Version number
-        * @param {Array} [param.objectStores] (if param is DatabaseParams) List of object stores
-        * @param {IMigrationHistory} [param.migrationHistory] (if param is DatabaseParams) History of migration
-        * @param {number} [version] (if param is string) Version number
-        * @param {Array} [objectStores] (if param is string) List of object stores
-        * @param {IMigrationHistory} [migrationHistory] (if param is string) History of migration
-        */
-        function Database(param, version, objectStores, migrationHistory) {
+        function Database(param, version, objectStores, customMigration) {
             this.version = 1;
             this.objectStores = [];
-            this.migrationHistory = {};
+            this.customMigration = {};
             if (typeof param === "string") {
                 this.name = param;
                 this.version = version || this.version;
                 this.objectStores = objectStores || this.objectStores;
-                this.migrationHistory = migrationHistory || this.migrationHistory;
+                this.customMigration = customMigration || this.customMigration;
             } else if (typeof param === "object" && !!param) {
                 this.name = param.name || this.name;
                 this.version = param.version || this.version;
                 this.objectStores = param.objectStores || this.objectStores;
-                this.migrationHistory = param.migrationHistory || this.migrationHistory;
+                this.customMigration = param.customMigration || this.customMigration;
             }
         }
         /**
-        * Open database
-        * @returns {IOpenDBRequest}
+        * Open database <br>
+        *     データベースとの接続を開きます
+        * @returns IOpenDBRequest
         */
         Database.prototype.open = function () {
             if (this.target) {
@@ -63,7 +58,9 @@ var Jaid;
         };
 
         /**
-        * Close database
+        * Close database <br>
+        *     データベースとの接続を閉じます
+        * @returns void
         */
         Database.prototype.close = function () {
             if (!this.target) {
@@ -74,7 +71,8 @@ var Jaid;
         };
 
         /**
-        * Delete database
+        * Delete database <br>
+        *     データベースを削除します
         */
         Database.prototype.delete = function () {
             indexedDB.deleteDatabase(this.name);
@@ -94,11 +92,6 @@ var Jaid;
             return new ReadOnlyTransaction(this, storeNames);
         };
 
-        /**
-        * Begin read write transaction
-        * @param {any} storeNames Object store name, or those list.
-        * @returns {IReadWriteTransaction} Read write transaction.
-        */
         Database.prototype.readWriteTransaction = function (storeNames) {
             return new ReadWriteTransaction(this, storeNames);
         };
@@ -113,11 +106,7 @@ var Jaid;
             var _this = this;
             this.source = db;
             this.target = opener;
-            try  {
-                this.migrationManager = new MigrationManager(this, this.source.objectStores, this.source.migrationHistory);
-            } catch (e) {
-                console.log(e, e.stack);
-            }
+            this.migrationManager = new MigrationManager(this, this.source.objectStores, this.source.customMigration);
 
             opener.onsuccess = function (event) {
                 _this.source.target = event.target.result;
@@ -137,20 +126,20 @@ var Jaid;
                 _this.migrationManager.execute(transaction, event);
             };
         }
-        OpenDBRequest.prototype.onSuccess = function (onsuccess) {
-            this.onsuccess = onsuccess;
+        OpenDBRequest.prototype.onSuccess = function (callback) {
+            this.onsuccess = callback;
             return this;
         };
-        OpenDBRequest.prototype.onError = function (onerror) {
-            this.onerror = onerror;
+        OpenDBRequest.prototype.onError = function (callback) {
+            this.onerror = callback;
             return this;
         };
-        OpenDBRequest.prototype.onBlocked = function (onblocked) {
-            this.onblocked = onblocked;
+        OpenDBRequest.prototype.onBlocked = function (callback) {
+            this.onblocked = callback;
             return this;
         };
-        OpenDBRequest.prototype.onCreated = function (oncreated) {
-            this.oncreated = oncreated;
+        OpenDBRequest.prototype.onCreated = function (callback) {
+            this.oncreated = callback;
             return this;
         };
         return OpenDBRequest;
@@ -190,7 +179,7 @@ var Jaid;
 
             // Remove deprecated objectStore and Index.
             this.droppedObjectStores.forEach(function (val) {
-                transaction.dropObjectStore(val);
+                transaction.dropObjectStore(val.name);
             });
             this.createdIndexes.forEach(function (val) {
                 transaction.dropIndex(val.storeName, val.index);
@@ -207,7 +196,7 @@ var Jaid;
     })();
 
     var MigrationManager = (function () {
-        function MigrationManager(source, objectStores, migrationHistory) {
+        function MigrationManager(source, objectStores, customMigration) {
             var _this = this;
             this.versions = {};
             this.versionNumbers = [];
@@ -235,10 +224,10 @@ var Jaid;
                     }
                 });
             });
-            Object.keys(migrationHistory).forEach(function (versionStr) {
+            Object.keys(customMigration).forEach(function (versionStr) {
                 var versionInt = parseInt(versionStr);
                 var obj = _this.get(versionInt);
-                obj.customOperation = migrationHistory[versionInt];
+                obj.customOperation = customMigration[versionInt];
             });
         }
         MigrationManager.checkObjectStore = function (objectStore) {
@@ -314,6 +303,8 @@ var Jaid;
             if (event.oldVersion == 0) {
                 //initialize
                 this.initialize(event.newVersion);
+
+                //TODO: sourceのメソッドを呼び出さなくていいようにしたい
                 this.source.oncreated(transaction, event);
             } else {
                 //migration
@@ -363,20 +354,23 @@ var Jaid;
             this.requests.push(request);
             return this;
         };
-        TransactionBase.prototype.onComplete = function (complete) {
-            this.oncomplete = complete;
+        TransactionBase.prototype.onComplete = function (callback) {
+            this.oncomplete = callback;
             return this;
         };
-        TransactionBase.prototype.onError = function (error) {
-            this.onerror = error;
+        TransactionBase.prototype.onError = function (callback) {
+            this.onerror = callback;
             return this;
         };
-        TransactionBase.prototype.onAbort = function (abort) {
-            this.onabort = abort;
+        TransactionBase.prototype.onAbort = function (callback) {
+            this.onabort = callback;
             return this;
         };
         TransactionBase.prototype.abort = function () {
             this.target.abort();
+        };
+        TransactionBase.prototype.rollback = function () {
+            this.abort();
         };
 
         //get requestIdList: number[]{
@@ -470,6 +464,12 @@ var Jaid;
 
     
 
+    /**
+    * バージョン変更トランザクション
+    *
+    * ※このクラスは自動的に作成されるユーザーによって作成されることを意図していません
+    * @private
+    */
     var VersionChangeTransaction = (function (_super) {
         __extends(VersionChangeTransaction, _super);
         function VersionChangeTransaction(db, transaction) {
@@ -530,7 +530,7 @@ var Jaid;
             }
             idbObjectStore.deleteIndex(indexName);
         };
-        VersionChangeTransaction.prototype.onComplete = function (complete) {
+        VersionChangeTransaction.prototype.onComplete = function (callback) {
             console.error("Cannot change oncomplete event in VersionChangeTransaction.");
             return this;
         };

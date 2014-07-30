@@ -5,7 +5,7 @@
 
 interface Schema {
     schema: Jaid.IObjectStore[];
-    history?: Jaid.IMigrationHistory;
+    history?: Jaid.ICustomMigration;
     created?: (transaction: Jaid.IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
 }
 interface SchemaTable {
