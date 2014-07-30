@@ -53,8 +53,7 @@ var Jaid;
             if (this.target) {
                 throw Error("This database was already opened.");
             }
-            var opener = new OpenDBRequest(this, indexedDB.open(this.name, this.version));
-            return opener;
+            return new OpenDBRequest(this, indexedDB.open(this.name, this.version));
         };
 
         /**
@@ -77,15 +76,31 @@ var Jaid;
         Database.prototype.delete = function () {
             indexedDB.deleteDatabase(this.name);
         };
+
+        /**
+        * データベースにデータを保存します<br>
+        *     主キーが重複している場合はエラーになります
+        * @param storeName オブジェクトストア名
+        * @param value 保存するデータ
+        * @param key 主キー
+        * @returns {IRequest}
+        */
         Database.prototype.insert = function (storeName, value, key) {
             var transaction = this.readWriteTransaction(storeName);
-            var req = transaction.add(storeName, value, key);
-            return req;
+            return transaction.add(storeName, value, key);
         };
+
+        /**
+        * データベースにデータを保存します<br>
+        *     主キーが重複している場合は置き換えられます
+        * @param storeName オブジェクトストア名
+        * @param value 保存するデータ
+        * @param key 主キー
+        * @returns {IRequest}
+        */
         Database.prototype.save = function (storeName, value, key) {
             var transaction = this.readWriteTransaction(storeName);
-            var req = transaction.put(storeName, value, key);
-            return req;
+            return transaction.put(storeName, value, key);
         };
 
         Database.prototype.readOnlyTransaction = function (storeNames) {
@@ -156,13 +171,18 @@ var Jaid;
             this.source = manager;
             this.version = version;
         }
+        /**
+        * 現在のバージョンにおけるマイグレーションを完了し、次のバージョンへのマイグレーションに移行します
+        *
+        * ※このメソッドを呼び出した後にデータの操作を行うとデータの不整合が発生する恐れがあります
+        */
         Migration.prototype.next = function () {
             if (this.continued) {
                 console.error("Already called.");
-            } else {
-                this.continued = true;
-                this.source.next();
+                return;
             }
+            this.continued = true;
+            this.source.next();
         };
         Migration.prototype.execute = function (transaction) {
             var _this = this;
@@ -303,8 +323,6 @@ var Jaid;
             if (event.oldVersion == 0) {
                 //initialize
                 this.initialize(event.newVersion);
-
-                //TODO: sourceのメソッドを呼び出さなくていいようにしたい
                 this.source.oncreated(transaction, event);
             } else {
                 //migration
@@ -319,11 +337,11 @@ var Jaid;
     var TransactionBase = (function () {
         function TransactionBase(db, storeNames, mode) {
             var _this = this;
-            this.oncomplete = function (results) {
+            this._oncomplete = function (results) {
             };
-            this.onerror = function () {
+            this._onerror = function () {
             };
-            this.onabort = function () {
+            this._onabort = function () {
             };
             this.results = {};
             this.requestCounter = 0;
@@ -339,13 +357,13 @@ var Jaid;
                 this.target = this.source.target.transaction(storeNames, mode);
             }
             this.target.oncomplete = function () {
-                _this.oncomplete(_this.results);
+                _this._oncomplete(_this.results);
             };
             this.target.onerror = function () {
-                _this.onerror();
+                _this._onerror();
             };
             this.target.onabort = function () {
-                _this.onabort();
+                _this._onabort();
             };
         }
         TransactionBase.prototype._registerRequest = function (request) {
@@ -355,15 +373,15 @@ var Jaid;
             return this;
         };
         TransactionBase.prototype.onComplete = function (callback) {
-            this.oncomplete = callback;
+            this._oncomplete = callback;
             return this;
         };
         TransactionBase.prototype.onError = function (callback) {
-            this.onerror = callback;
+            this._onerror = callback;
             return this;
         };
         TransactionBase.prototype.onAbort = function (callback) {
-            this.onabort = callback;
+            this._onabort = callback;
             return this;
         };
         TransactionBase.prototype.abort = function () {
@@ -400,6 +418,7 @@ var Jaid;
         return TransactionBase;
     })();
 
+    
     var ReadOnlyTransaction = (function (_super) {
         __extends(ReadOnlyTransaction, _super);
         function ReadOnlyTransaction(db, storeNames, mode) {
@@ -436,6 +455,7 @@ var Jaid;
 
     
 
+    
     var ReadWriteTransaction = (function (_super) {
         __extends(ReadWriteTransaction, _super);
         function ReadWriteTransaction(db, storeNames, mode) {
@@ -559,24 +579,23 @@ var Jaid;
             });
             this.onError(function (error, event) {
                 console.log(_this);
-                //this.source.abort();
             });
         }
-        Request.prototype.onSuccess = function (onsuccess) {
+        Request.prototype.onSuccess = function (callback) {
             var _this = this;
             this.target.onsuccess = function (event) {
                 var result = event.target.result;
                 _this.source._requestCallback(_this, result);
-                onsuccess(result, event);
+                callback(result, event);
             };
             return this;
         };
-        Request.prototype.onError = function (onerror) {
+        Request.prototype.onError = function (callback) {
             var _this = this;
             this.target.onerror = function (event) {
                 var error = event.target.error;
                 _this.source._requestCallback(_this, error);
-                onerror(error, event);
+                callback(error, event);
             };
             return this;
         };
@@ -600,23 +619,23 @@ var Jaid;
         RequestWithCursor.prototype._onstopiteration = function () {
             this.source._requestCallback(this, this.values);
             if (this.onstopiteration) {
-                this.onstopiteration(this.values);
+                this.onstopiteration(this.values, this.continueFlag);
             }
         };
-        RequestWithCursor.prototype.onStopIteration = function (func) {
+        RequestWithCursor.prototype.onStopIteration = function (callback) {
             var _this = this;
             this.onstopiteration = function (results) {
-                func(results);
+                callback(results);
                 _this.source.results[_this.id] = event.target;
             };
             return this;
         };
-        RequestWithCursor.prototype.onSuccess = function (onsuccess) {
+        RequestWithCursor.prototype.onSuccess = function (callback) {
             var _this = this;
             this.target.onsuccess = function (event) {
                 var result = event.target.result;
                 if (result) {
-                    onsuccess(result, event);
+                    callback(result, event);
                     if (_this.continueFlag) {
                         result.continue();
                     } else {
@@ -679,12 +698,12 @@ var Jaid;
             this.joined = true;
             this.checkComplete();
         };
-        RequestGroup.prototype.onSuccess = function (onsuccess) {
-            this.onsuccess = onsuccess;
+        RequestGroup.prototype.onSuccess = function (callback) {
+            this.onsuccess = callback;
             return this;
         };
-        RequestGroup.prototype.onComplete = function (oncomplete) {
-            this.oncomplete = oncomplete;
+        RequestGroup.prototype.onComplete = function (callback) {
+            this.oncomplete = callback;
             return this;
         };
         return RequestGroup;

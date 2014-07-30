@@ -36,7 +36,7 @@ module Jaid {
     /**
      * Parameters of Index
      */
-    export interface IIndex {
+    export interface IIndexParams {
         /**
          * Name of Index <br>
          *     インデックス名
@@ -66,7 +66,7 @@ module Jaid {
     /**
      * Parameters of object store
      */
-    export interface IObjectStore {
+    export interface IObjectStoreParams {
         /**
          * Name of object store <br>
          *     オブジェクトストア名
@@ -85,7 +85,7 @@ module Jaid {
         /**
          * オブジェクトストアに含まれるインデックスの配列
          */
-        indexes?: IIndex[];
+        indexes?: IIndexParams[];
         /**
          * オブジェクトストアが作成されたDBバージョン(マイグレーション時に使用)
          */
@@ -97,6 +97,10 @@ module Jaid {
     }
 
     export interface ICustomMigration {
+        /**
+         * マイグレーション機能で、過去から現在に向けて改変履歴をたどっていく中で、
+         * オブジェクトストアやインデックスを各バージョンにおける状態に変更した段階で実行する操作
+         */
         [version: number]: (transaction: IVersionChangeTransaction, migration: IMigration) => void;
     }
 
@@ -115,7 +119,7 @@ module Jaid {
          * List of object stores <br>
          *     オブジェクトストアの配列
          */
-        objectStores?: IObjectStore[];
+        objectStores?: IObjectStoreParams[];
         /**
          * History of migration <br>
          *     マイグレーション履歴
@@ -132,7 +136,7 @@ module Jaid {
         target: IDBDatabase;
         name: string;
         version: number = 1;
-        objectStores: IObjectStore[] = [];
+        objectStores: IObjectStoreParams[] = [];
         customMigration: ICustomMigration = {};
 
         /**
@@ -146,10 +150,10 @@ module Jaid {
          *     バージョン番号
          * @param objectStores List of object stores <br>
          *     オブジェクトストアの配列
-         * @param customMigration History of migration <br>
-         *     マイグレーション履歴
+         * @param customMigration Custom migration operation in each version <br>
+         *     各バージョン時点におけるマイグレーション操作
          */
-        constructor(name?: string, version?: number, objectStores?: IObjectStore[], customMigration?: ICustomMigration);
+        constructor(name?: string, version?: number, objectStores?: IObjectStoreParams[], customMigration?: ICustomMigration);
         /**
          * constructor with single parameter <br>
          *     データベース名、バージョン、オブジェクトストア、マイグレーション履歴を単一のオブジェクト内で指定します
@@ -159,7 +163,7 @@ module Jaid {
          *     データベース名、バージョン、オブジェクトストア、マイグレーション履歴を含むオブジェクト
          */
         constructor(param?: IDatabaseParams);
-        constructor(param?: any, version?: number, objectStores?: IObjectStore[], customMigration?: ICustomMigration){
+        constructor(param?: any, version?: number, objectStores?: IObjectStoreParams[], customMigration?: ICustomMigration){
             if(typeof param === "string"){
                 this.name = param;
                 this.version = version || this.version;
@@ -182,8 +186,7 @@ module Jaid {
             if(this.target){
                 throw Error("This database was already opened.");
             }
-            var opener: IOpenDBRequest = new OpenDBRequest(this, indexedDB.open(this.name, this.version));
-            return opener;
+            return new OpenDBRequest(this, indexedDB.open(this.name, this.version));
         }
 
         /**
@@ -206,15 +209,31 @@ module Jaid {
         delete(): void{
             indexedDB.deleteDatabase(this.name);
         }
+
+        /**
+         * データベースにデータを保存します<br>
+         *     主キーが重複している場合はエラーになります
+         * @param storeName オブジェクトストア名
+         * @param value 保存するデータ
+         * @param key 主キー
+         * @returns {IRequest}
+         */
         insert(storeName: string, value: any, key?: any): IRequest {
             var transaction = this.readWriteTransaction(storeName);
-            var req: IRequest = transaction.add(storeName, value, key);
-            return req;
+            return <IRequest>transaction.add(storeName, value, key);
         }
+
+        /**
+         * データベースにデータを保存します<br>
+         *     主キーが重複している場合は置き換えられます
+         * @param storeName オブジェクトストア名
+         * @param value 保存するデータ
+         * @param key 主キー
+         * @returns {IRequest}
+         */
         save(storeName: string, value: any, key?: any): IRequest {
             var transaction = this.readWriteTransaction(storeName);
-            var req: IRequest = transaction.put(storeName, value, key);
-            return req;
+            return <IRequest>transaction.put(storeName, value, key);
         }
 
         /**
@@ -340,6 +359,11 @@ module Jaid {
     }
 
     export interface IMigration{
+        /**
+         * 現在のバージョンにおけるマイグレーションを完了し、次のバージョンへのマイグレーションに移行します
+         *
+         * ※このメソッドを呼び出した後にデータの操作を行うとデータの不整合が発生する恐れがあります
+         */
         next(): void;
     }
 
@@ -348,40 +372,46 @@ module Jaid {
         private continued: boolean = false;
         private executed: boolean = false;
         version: number;
-        createdObjectStores: IObjectStore[] = [];
-        createdIndexes: {storeName: string; index: IIndex}[] = [];
-        droppedObjectStores: IObjectStore[] = [];
-        droppedIndexes: {storeName: string; index: IIndex}[] = [];
+        createdObjectStores: IObjectStoreParams[] = [];
+        createdIndexes: {storeName: string; index: IIndexParams}[] = [];
+        droppedObjectStores: IObjectStoreParams[] = [];
+        droppedIndexes: {storeName: string; index: IIndexParams}[] = [];
         customOperation: (transaction: IVersionChangeTransaction, migration: IMigration) => void;
 
         constructor(manager: MigrationManager, version: number){
             this.source = manager;
             this.version = version;
         }
+
+        /**
+         * 現在のバージョンにおけるマイグレーションを完了し、次のバージョンへのマイグレーションに移行します
+         *
+         * ※このメソッドを呼び出した後にデータの操作を行うとデータの不整合が発生する恐れがあります
+         */
         next(): void{
             if(this.continued){
                 console.error("Already called.");
-            }else{
-                this.continued = true;
-                this.source.next();
+                return;
             }
+            this.continued = true;
+            this.source.next();
         }
         execute(transaction: IVersionChangeTransaction): void{
             if(this.executed){
                 console.error("Already called.");
                 return;
             }
-            this.createdObjectStores.forEach((val: IObjectStore) => {
+            this.createdObjectStores.forEach((val: IObjectStoreParams) => {
                 transaction.createObjectStore(val, this.version);
             });
-            this.createdIndexes.forEach((val: {storeName: string; index: IIndex}) => {
+            this.createdIndexes.forEach((val: {storeName: string; index: IIndexParams}) => {
                 transaction.createIndex(val.storeName, val.index);
             });
             // Remove deprecated objectStore and Index.
-            this.droppedObjectStores.forEach((val: IObjectStore) => {
+            this.droppedObjectStores.forEach((val: IObjectStoreParams) => {
                 transaction.dropObjectStore(val.name);
             });
-            this.createdIndexes.forEach((val: {storeName: string; index: IIndex}) => {
+            this.createdIndexes.forEach((val: {storeName: string; index: IIndexParams}) => {
                 transaction.dropIndex(val.storeName, val.index);
             });
             // Custom operation
@@ -397,13 +427,13 @@ module Jaid {
         private source: OpenDBRequest;
         private versions: {[version: number]: Migration} = {};
         private versionNumbers: number[] = [];
-        private objectStores: IObjectStore[];
+        private objectStores: IObjectStoreParams[];
         private transaction: IVersionChangeTransaction;
 
-        constructor(source: IOpenDBRequest, objectStores: IObjectStore[], customMigration: ICustomMigration){
+        constructor(source: IOpenDBRequest, objectStores: IObjectStoreParams[], customMigration: ICustomMigration){
             this.source = <OpenDBRequest>source;
             this.objectStores = objectStores;
-            this.objectStores.forEach((objectStore: IObjectStore) => {
+            this.objectStores.forEach((objectStore: IObjectStoreParams) => {
                 objectStore = MigrationManager.checkObjectStore(objectStore);
                 if(objectStore.created) {
                     var obj = this.get(objectStore.created);
@@ -413,7 +443,7 @@ module Jaid {
                     var obj = this.get(objectStore.dropped);
                     obj.droppedObjectStores.push(objectStore);
                 }
-                objectStore.indexes.forEach((index: IIndex) => {
+                objectStore.indexes.forEach((index: IIndexParams) => {
                     index = MigrationManager.checkIndex(index, objectStore);
                     if(index.created && (!objectStore.created || index.created > objectStore.created)) {
                         var obj = this.get(index.created);
@@ -431,14 +461,14 @@ module Jaid {
                 obj.customOperation = customMigration[versionInt];
             });
         }
-        private static checkObjectStore(objectStore: IObjectStore): IObjectStore{
+        private static checkObjectStore(objectStore: IObjectStoreParams): IObjectStoreParams{
             if(objectStore.created && objectStore.dropped && objectStore.created >= objectStore.dropped){
                 throw Error(objectStore.name + ': "dropped" is MUST be greater than "created"');
             }
             objectStore.indexes = objectStore.indexes || [];
             return objectStore
         }
-        private static checkIndex(index: IIndex, objectStore: IObjectStore): IIndex{
+        private static checkIndex(index: IIndexParams, objectStore: IObjectStoreParams): IIndexParams{
             if(!index.name){
                 // If parameter "name" is empty, make name from keyPath.
                 if(Array.isArray(index.keyPath)){
@@ -475,7 +505,7 @@ module Jaid {
             return this.versions[version];
         }
         private initialize(version: number){
-            this.objectStores.forEach((params: IObjectStore) => {
+            this.objectStores.forEach((params: IObjectStoreParams) => {
                 // Exclude "already dropped" or "not yet created" indexes.
                 if((params.created && params.created > version) ||
                     (params.dropped && params.dropped <= version)){
@@ -500,7 +530,6 @@ module Jaid {
             if(event.oldVersion == 0){
                 //initialize
                 this.initialize(event.newVersion);
-                //TODO: sourceのメソッドを呼び出さなくていいようにしたい
                 this.source.oncreated(transaction, event);
             }else{
                 //migration
@@ -513,13 +542,15 @@ module Jaid {
      * transaction
      */
     export interface _ITransactionBase<Transaction> {
+        /**
+         * トランザクションを呼び出したデータベース
+         */
         source: Database;
+        /**
+         * 実行中のトランザクション
+         */
         target: IDBTransaction;
-        oncomplete: Function;
-        onerror: Function;
-        onabort: Function;
         results: {[id: number]: any};
-        requests: any[];
 
         /**
          * トランザクションが完了された時に実行されるコールバック関数を指定します
@@ -563,11 +594,17 @@ module Jaid {
     }
     export interface ITransactionBase extends _ITransactionBase<ITransactionBase> {}
     class TransactionBase<T> implements _ITransactionBase<T> {
+        /**
+         * トランザクションを呼び出したデータベース
+         */
         source: Database;
+        /**
+         * 実行中のトランザクション
+         */
         target: IDBTransaction;
-        oncomplete: (results: any) => any = function (results: any){};
-        onerror: Function = function(){};
-        onabort: Function = function(){};
+        _oncomplete: (results: any) => any = function (results: any){};
+        _onerror: Function = function(){};
+        _onabort: Function = function(){};
         results: {[id: number]: any} = {};
         requestCounter: number = 0;
         requests: IRequestBase[] = [];
@@ -588,13 +625,13 @@ module Jaid {
                 this.target = this.source.target.transaction(storeNames, mode);
             }
             this.target.oncomplete = () => {
-                this.oncomplete(this.results);
+                this._oncomplete(this.results);
             };
             this.target.onerror = () => {
-                this.onerror();
+                this._onerror();
             };
             this.target.onabort = () => {
-                this.onabort();
+                this._onabort();
             };
         }
         _registerRequest(request: IRequest): T{
@@ -604,15 +641,15 @@ module Jaid {
             return <T><any>this;
         }
         onComplete(callback: (results: any) => any): T{
-            this.oncomplete = callback;
+            this._oncomplete = callback;
             return <T><any>this;
         }
         onError(callback: Function): T{
-            this.onerror = callback;
+            this._onerror = callback;
             return <T><any>this;
         }
         onAbort(callback: Function): T{
-            this.onabort = callback;
+            this._onabort = callback;
             return <T><any>this;
         }
         abort(): void{
@@ -653,6 +690,11 @@ module Jaid {
         findByKey(storeName: string, range: any, direction: string): IRequestWithCursor;
         findByIndex(storeName: string, indexName:string, range: any, direction: string): IRequestWithCursor;
     }
+    /**
+     * Read only transaction
+     *
+     * 読み取り専用トランザクション
+     */
     export interface IReadOnlyTransaction extends _IReadOnlyTransaction<IReadOnlyTransaction> {}
     class ReadOnlyTransaction<T> extends TransactionBase<T> implements _IReadOnlyTransaction<T> {
 
@@ -693,12 +735,35 @@ module Jaid {
 
     /**
      * Read/Write transaction
+     *
+     * 読み取り/書き込み可能トランザクション
      */
     export interface _IReadWriteTransaction<ReadWriteTransaction> extends _IReadOnlyTransaction<ReadWriteTransaction> {
+        /**
+         * オブジェクトストアにデータを保存します<br>
+         *     主キーが重複している場合はエラーになります
+         * @param storeName オブジェクトストア名
+         * @param value 保存するデータ
+         * @param key 主キー<br>
+         *     オブジェクトストアがin-value-keyの場合は指定不要
+         */
         add(storeName: string, value: any, key?: any): IRequest;
+        /**
+         * オブジェクトストアにデータを保存します<br>
+         *     キーが重複している場合は置き換えられます
+         * @param storeName オブジェクトストア名
+         * @param value 保存するデータ
+         * @param key 主キー<br>
+         *     オブジェクトストアがin-value-keyの場合は指定不要
+         */
         put(storeName: string, value: any, key?: any): IRequest;
         deleteByKey(storeName: string, key: any): IRequest;
     }
+    /**
+     * Read/Write transaction
+     *
+     * 読み取り/書き込み可能トランザクション
+     */
     export interface IReadWriteTransaction extends _IReadWriteTransaction<IReadWriteTransaction> {}
     class ReadWriteTransaction<T> extends ReadOnlyTransaction<T> implements _IReadWriteTransaction<T>{
 
@@ -739,25 +804,25 @@ module Jaid {
          * @param indexVersion どのバージョン時点でのインデックス構造を作成するか<br>
          *     (例えばバージョン2を指定したとき、createdパラメータに3が指定されているインデックスは作成されない)
          */
-        createObjectStore(objectStore: IObjectStore, indexVersion?: number): IDBObjectStore;
+        createObjectStore(objectStore: IObjectStoreParams, indexVersion?: number): IDBObjectStore;
         /**
          * インデックスの作成
          * @param objectStore インデックスを作成するオブジェクトストア名
          * @param index インデックスのパラメータ
          */
-        createIndex(objectStore: string, index: IIndex): IDBIndex;
+        createIndex(objectStore: string, index: IIndexParams): IDBIndex;
         /**
          * インデックスの作成
          * @param objectStore インデックスを作成するオブジェクトストアのパラメータ
          * @param index インデックスのパラメータ
          */
-        createIndex(objectStore: IObjectStore, index: IIndex): IDBIndex;
+        createIndex(objectStore: IObjectStoreParams, index: IIndexParams): IDBIndex;
         /**
          * インデックスの作成
          * @param objectStore インデックスを作成するオブジェクトストア
          * @param index インデックスのパラメータ
          */
-        createIndex(objectStore: IDBObjectStore, index: IIndex): IDBIndex;
+        createIndex(objectStore: IDBObjectStore, index: IIndexParams): IDBIndex;
         /**
          * オブジェクトストアの削除
          * @param objectStore 削除するオブジェクトストア名
@@ -767,7 +832,7 @@ module Jaid {
          * オブジェクトストアの削除
          * @param objectStore 削除するオブジェクトストアのパラメータ
          */
-        dropObjectStore(objectStore: IObjectStore): void;
+        dropObjectStore(objectStore: IObjectStoreParams): void;
         /**
          * オブジェクトストアの削除
          * @param objectStore 削除するオブジェクトストア
@@ -778,19 +843,19 @@ module Jaid {
          * @param objectStore インデックスを削除するオブジェクトストアの名前
          * @param index 削除するインデックスのパラメータ
          */
-        dropIndex(objectStore: string, index: IIndex): void;
+        dropIndex(objectStore: string, index: IIndexParams): void;
         /**
          * インデックスの削除
          * @param objectStore インデックスを削除するオブジェクトストアのパラメータ
          * @param index 削除するインデックスのパラメータ
          */
-        dropIndex(objectStore: IObjectStore, index: IIndex): void;
+        dropIndex(objectStore: IObjectStoreParams, index: IIndexParams): void;
         /**
          * インデックスの削除
          * @param objectStore インデックスを削除するオブジェクトストア
          * @param index 削除するインデックスのパラメータ
          */
-        dropIndex(objectStore: IDBObjectStore, index: IIndex): void;
+        dropIndex(objectStore: IDBObjectStore, index: IIndexParams): void;
         /**
          * インデックスの削除
          * @param objectStore インデックスを削除するオブジェクトストアの名前
@@ -802,7 +867,7 @@ module Jaid {
          * @param objectStore インデックスを削除するオブジェクトストアのパラメータ
          * @param index 削除するインデックスの名前
          */
-        dropIndex(objectStore: IObjectStore, index: string): void;
+        dropIndex(objectStore: IObjectStoreParams, index: string): void;
         /**
          * インデックスの削除
          * @param objectStore インデックスを削除するオブジェクトストア
@@ -820,7 +885,7 @@ module Jaid {
          * @param objectStore インデックスを削除するオブジェクトストアのパラメータ
          * @param index 削除するインデックス
          */
-        dropIndex(objectStore: IObjectStore, index: IDBIndex): void;
+        dropIndex(objectStore: IObjectStoreParams, index: IDBIndex): void;
         /**
          * インデックスの削除
          * @param objectStore インデックスを削除するオブジェクトストア
@@ -851,11 +916,11 @@ module Jaid {
             super(db, transaction);
         }
 
-        createObjectStore(objectStore: IObjectStore, indexVersion?: number): IDBObjectStore{
+        createObjectStore(objectStore: IObjectStoreParams, indexVersion?: number): IDBObjectStore{
             var idbObjectStore: IDBObjectStore = this.source.target.createObjectStore(objectStore.name, {keyPath: objectStore.keyPath, autoIncrement: objectStore.autoIncrement||false});
             //create indexes.
             if(typeof indexVersion === 'number'){
-                objectStore.indexes.forEach((index: IIndex) => {
+                objectStore.indexes.forEach((index: IIndexParams) => {
                     // Exclude "already dropped" or "not yet created" indexes.
                     if((index.created && index.created > indexVersion) ||
                         (index.dropped && index.dropped <= indexVersion)){
@@ -866,10 +931,10 @@ module Jaid {
             }
             return idbObjectStore;
         }
-        createIndex(objectStore: string, index: IIndex): IDBIndex;
-        createIndex(objectStore: IObjectStore, index: IIndex): IDBIndex;
-        createIndex(objectStore: IDBObjectStore, index: IIndex): IDBIndex;
-        createIndex(objectStore: any, index: IIndex): IDBIndex{
+        createIndex(objectStore: string, index: IIndexParams): IDBIndex;
+        createIndex(objectStore: IObjectStoreParams, index: IIndexParams): IDBIndex;
+        createIndex(objectStore: IDBObjectStore, index: IIndexParams): IDBIndex;
+        createIndex(objectStore: any, index: IIndexParams): IDBIndex{
             var idbObjectStore: IDBObjectStore;
             if(typeof objectStore === "function" && objectStore instanceof IDBObjectStore){
                 idbObjectStore = objectStore;
@@ -881,7 +946,7 @@ module Jaid {
             return idbObjectStore.createIndex(index.name, index.keyPath, {unique: index.unique||false, multiEntry: index.multiEntry||false});
         }
         dropObjectStore(objectStore: string): void;
-        dropObjectStore(objectStore: IObjectStore): void;
+        dropObjectStore(objectStore: IObjectStoreParams): void;
         dropObjectStore(objectStore: IDBObjectStore): void;
         dropObjectStore(objectStore: any): void{
             var name: string;
@@ -892,14 +957,14 @@ module Jaid {
             }
             this.source.target.deleteObjectStore(name);
         }
-        dropIndex(objectStore: string, index: IIndex): void;
-        dropIndex(objectStore: IObjectStore, index: IIndex): void;
-        dropIndex(objectStore: IDBObjectStore, index: IIndex): void;
+        dropIndex(objectStore: string, index: IIndexParams): void;
+        dropIndex(objectStore: IObjectStoreParams, index: IIndexParams): void;
+        dropIndex(objectStore: IDBObjectStore, index: IIndexParams): void;
         dropIndex(objectStore: string, index: string): void;
-        dropIndex(objectStore: IObjectStore, index: string): void;
+        dropIndex(objectStore: IObjectStoreParams, index: string): void;
         dropIndex(objectStore: IDBObjectStore, index: string): void;
         dropIndex(objectStore: string, index: IDBIndex): void;
-        dropIndex(objectStore: IObjectStore, index: IDBIndex): void;
+        dropIndex(objectStore: IObjectStoreParams, index: IDBIndex): void;
         dropIndex(objectStore: IDBObjectStore, index: IDBIndex): void;
         dropIndex(objectStore: any, index: any): void{
             var idbObjectStore: IDBObjectStore;
@@ -938,16 +1003,33 @@ module Jaid {
      * requests
      */
     export interface IRequestBase{
+        /**
+         * トランザクション内で実行したリクエストの通し番号
+         */
         id: number;
+        /**
+         * リクエストを実行したトランザクション
+         */
         source: ITransactionBase;
         target: {error: any};
     }
 
     export interface _IRequest<Req> extends IRequestBase{
+        /**
+         * 実際に実行したリクエスト
+         */
         target: IDBRequest;
 
-        onSuccess(onsuccess: (result: any, event: Event) => any): Req;
-        onError(onerror: (error: DOMError, event: Event) => any): Req;
+        /**
+         * リクエストが完了したときのコールバック関数を設定する
+         * @param callback リクエストが完了したときに実行するコールバック関数
+         */
+        onSuccess(callback: (result: any, event: Event) => any): Req;
+        /**
+         * リクエストが失敗したときのコールバック関数を設定する
+         * @param callback リクエストが失敗したときに実行するコールバック関数
+         */
+        onError(callback: (error: DOMError, event: Event) => any): Req;
     }
     export interface IRequest extends _IRequest<IRequest> {}
     class Request<T> implements _IRequest<T>{
@@ -962,39 +1044,47 @@ module Jaid {
             });
             this.onError((error: DOMError, event: Event) => {
                 console.log(this);
-                //this.source.abort();
             });
         }
-        onSuccess(onsuccess: (result: any, event: Event) => any): T{
+        onSuccess(callback: (result: any, event: Event) => any): T{
             this.target.onsuccess = (event: Event) => {
                 var result = <any>(<IDBRequest>event.target).result;
                 this.source._requestCallback(<IRequest><any>this, result);
-                onsuccess(result, event);
+                callback(result, event);
             };
             return <T><any>this;
         }
-        onError(onerror: (error: DOMError, event: Event) => any): T{
+        onError(callback: (error: DOMError, event: Event) => any): T{
             this.target.onerror = (event: Event) => {
                 var error = <DOMError>(<IDBRequest>event.target).error;
                 this.source._requestCallback(<IRequest><any>this, error);
-                onerror(error, event);
+                callback(error, event);
             };
             return <T><any>this;
         }
     }
 
     export interface _IRequestWithCursor<Req> extends _IRequest<Req>{
-        continueFlag: boolean;
+        /**
+         * カーソルの走査を終了します
+         */
         stopCursor(): void;
         values: any[];
-        onstopiteration: (results: any[]) => void;
-        onStopIteration(func: (results: any[]) => void): Req;
-        onSuccess(onsuccess: (result: any, event: Event) => any): Req;
+        /**
+         * カーソルを最後まで走査し終えた、あるいは途中で走査を打ち切ったあとに実行するコールバック関数を指定する
+         * @param callback 走査終了後に実行するコールバック関数
+         */
+        onStopIteration(callback: (results: any[]) => void): Req;
+        /**
+         * 1件ごとのリクエストが完了したときのコールバック関数を設定する
+         * @param callback 1件ごとのリクエストが完了したときに実行するコールバック関数
+         */
+        onSuccess(callback: (result: any, event: Event) => any): Req;
     }
     export interface IRequestWithCursor extends _IRequestWithCursor<IRequestWithCursor> {}
     class RequestWithCursor<T> extends Request<T> implements _IRequestWithCursor<T>{
-        continueFlag: boolean = true;
-        onstopiteration: (results: any[]) => void;
+        private continueFlag: boolean = true;
+        private onstopiteration: (results: any[], completed:boolean) => void;
         values: any[] = [];
 
         constructor(request: IDBRequest) {
@@ -1009,21 +1099,21 @@ module Jaid {
         private _onstopiteration(): void {
             this.source._requestCallback(<IRequest><any>this, this.values);
             if(this.onstopiteration){
-                this.onstopiteration(this.values);
+                this.onstopiteration(this.values, this.continueFlag);
             }
         }
-        onStopIteration(func: (results: any[]) => void): T{
+        onStopIteration(callback: (results: any[]) => void): T{
             this.onstopiteration = (results: any) => {
-                func(results);
+                callback(results);
                 this.source.results[this.id] = event.target;
             };
             return <T><any>this;
         }
-        onSuccess(onsuccess: (result: any, event: Event) => any): T{
+        onSuccess(callback: (result: any, event: Event) => any): T{
             this.target.onsuccess = (event: Event) => {
                 var result = <IDBCursorWithValue>(<IDBRequest>event.target).result;
                 if(result){
-                    onsuccess(result, event);
+                    callback(result, event);
                     if(this.continueFlag){
                         result.continue();
                     }else{
@@ -1041,7 +1131,7 @@ module Jaid {
         add(request: IRequestBase): void;
         remove(request: IRequestBase): void;
         joinAll(): void;
-        onComplete(complete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): IRequestGroup;
+        onComplete(callback: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): IRequestGroup;
     }
 
     class RequestGroup implements IRequestGroup{
@@ -1053,10 +1143,10 @@ module Jaid {
         queue: {[id: number]: IRequestBase} = {};
         results: {[id: number]: any} = {};
         errors: {[id: number]: DOMError} = {};
-        onsuccess: (result: any, request: IRequestBase) => any = function(){};
-        oncomplete: (results?: {[id: number]: any}, errors?: {[id: number]: DOMError}) => any =
+        private onsuccess: (result: any, request: IRequestBase) => any = function(){};
+        private oncomplete: (results?: {[id: number]: any}, errors?: {[id: number]: DOMError}) => any =
             function(results?: {[id: number]: any}, errors?: {[id: number]: DOMError}){};
-        _oncomplete (): void{
+        private _oncomplete (): void{
             this.source._requestCallback(this, this.results);
             this.oncomplete(this.results, this.errors);
         }
@@ -1092,12 +1182,12 @@ module Jaid {
             this.joined = true;
             this.checkComplete();
         }
-        onSuccess(onsuccess: (result: any, request: IRequestBase) => void): RequestGroup{
-            this.onsuccess = onsuccess;
+        onSuccess(callback: (result: any, request: IRequestBase) => void): RequestGroup{
+            this.onsuccess = callback;
             return this;
         }
-        onComplete(oncomplete: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): RequestGroup{
-            this.oncomplete = oncomplete;
+        onComplete(callback: (results: {[id: number]: any}, errors?: {[id: number]: DOMError}) => void): RequestGroup{
+            this.oncomplete = callback;
             return this;
         }
     }

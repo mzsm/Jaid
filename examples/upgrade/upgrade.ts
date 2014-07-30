@@ -4,7 +4,7 @@
 "use strict";
 
 interface Schema {
-    schema: Jaid.IObjectStore[];
+    schema: Jaid.IObjectStoreParams[];
     history?: Jaid.ICustomMigration;
     created?: (transaction: Jaid.IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
 }
