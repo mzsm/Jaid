@@ -5,6 +5,7 @@
  * @author mzsm j@mzsm.me
  * @license The MIT License
  */
+/// <reference path="../d.ts/es6-promise/es6-promise.d.ts" />
 //var indexedDB = window.indexedDB;
 "use strict";
 
@@ -566,17 +567,12 @@ module Jaid {
          * トランザクションが完了された時に実行されるコールバック関数を指定します
          * @param complete
          */
-        onComplete(callback: (results: any) => any): Transaction;
+        done(callback: (results: any) => any): Transaction;
         /**
          * トランザクションが失敗した時に実行されるコールバック関数を指定します
          * @param error
          */
-        onError(callback: Function): Transaction;
-        /**
-         * トランザクションを強制終了したときに実行されるコールバック関数を指定します
-         * @param abort
-         */
-        onAbort(callback: Function): Transaction;
+        fail(callback: (error: any) => any): Transaction;
         /**
          * 複数のリクエストが完了するのを待つ
          * @param requests
@@ -613,8 +609,7 @@ module Jaid {
          */
         target: IDBTransaction;
         _oncomplete: (results: any) => any = function (results: any){};
-        _onerror: Function = function(){};
-        _onabort: Function = function(){};
+        _onerror: (error: any) => any = function(error){};
         results: {[id: number]: any} = {};
         requestCounter: number = 0;
         requests: IRequestBase[] = [];
@@ -637,11 +632,11 @@ module Jaid {
             this.target.oncomplete = () => {
                 this._oncomplete(this.results);
             };
-            this.target.onerror = () => {
-                this._onerror();
+            this.target.onerror = (event: any) => {
+                this._onerror(event);
             };
-            this.target.onabort = () => {
-                this._onabort();
+            this.target.onabort = (event: any) => {
+                this._onerror(event);
             };
         }
         _registerRequest(request: IRequest): T{
@@ -650,16 +645,13 @@ module Jaid {
             this.requests.push(request);
             return <T><any>this;
         }
-        onComplete(callback: (results: any) => any): T{
+        //private then(doneCallback, failCallback);
+        done(callback: (results: any) => any): T{
             this._oncomplete = callback;
             return <T><any>this;
         }
-        onError(callback: Function): T{
+        fail(callback: (error: any) => any): T{
             this._onerror = callback;
-            return <T><any>this;
-        }
-        onAbort(callback: Function): T{
-            this._onabort = callback;
             return <T><any>this;
         }
         abort(): void{

@@ -1,3 +1,4 @@
+/// <reference path="../d.ts/es6-promise/es6-promise.d.ts" />
 interface DOMError {
     message?: string;
 }
@@ -276,17 +277,12 @@ declare module Jaid {
         * トランザクションが完了された時に実行されるコールバック関数を指定します
         * @param complete
         */
-        onComplete(callback: (results: any) => any): Transaction;
+        done(callback: (results: any) => any): Transaction;
         /**
         * トランザクションが失敗した時に実行されるコールバック関数を指定します
         * @param error
         */
-        onError(callback: Function): Transaction;
-        /**
-        * トランザクションを強制終了したときに実行されるコールバック関数を指定します
-        * @param abort
-        */
-        onAbort(callback: Function): Transaction;
+        fail(callback: (error: any) => any): Transaction;
         /**
         * 複数のリクエストが完了するのを待つ
         * @param requests

@@ -5,6 +5,7 @@
 * @author mzsm j@mzsm.me
 * @license The MIT License
 */
+/// <reference path="../d.ts/es6-promise/es6-promise.d.ts" />
 //var indexedDB = window.indexedDB;
 "use strict";
 var __extends = this.__extends || function (d, b) {
@@ -341,9 +342,7 @@ var Jaid;
             var _this = this;
             this._oncomplete = function (results) {
             };
-            this._onerror = function () {
-            };
-            this._onabort = function () {
+            this._onerror = function (error) {
             };
             this.results = {};
             this.requestCounter = 0;
@@ -361,11 +360,11 @@ var Jaid;
             this.target.oncomplete = function () {
                 _this._oncomplete(_this.results);
             };
-            this.target.onerror = function () {
-                _this._onerror();
+            this.target.onerror = function (event) {
+                _this._onerror(event);
             };
-            this.target.onabort = function () {
-                _this._onabort();
+            this.target.onabort = function (event) {
+                _this._onerror(event);
             };
         }
         TransactionBase.prototype._registerRequest = function (request) {
@@ -374,16 +373,14 @@ var Jaid;
             this.requests.push(request);
             return this;
         };
-        TransactionBase.prototype.onComplete = function (callback) {
+
+        //private then(doneCallback, failCallback);
+        TransactionBase.prototype.done = function (callback) {
             this._oncomplete = callback;
             return this;
         };
-        TransactionBase.prototype.onError = function (callback) {
+        TransactionBase.prototype.fail = function (callback) {
             this._onerror = callback;
-            return this;
-        };
-        TransactionBase.prototype.onAbort = function (callback) {
-            this._onabort = callback;
             return this;
         };
         TransactionBase.prototype.abort = function () {
