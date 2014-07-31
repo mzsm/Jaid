@@ -13,6 +13,16 @@ declare var IDBTransaction: {
     prototype: IDBTransaction;
     new(): IDBTransaction;
 };
+interface IDBKeyRange {
+    bound(lower: any, upper: any, lowerOpen?: boolean, upperOpen?: boolean): IDBKeyRange;
+    only(value: any): IDBKeyRange;
+    lowerBound(bound: any, open?: boolean): IDBKeyRange;
+    upperBound(bound: any, open?: boolean): IDBKeyRange;
+}
+declare var IDBKeyRange: {
+    prototype: IDBKeyRange;
+    new(): IDBKeyRange;
+};
 /**
 * Jaid module
 */
@@ -341,6 +351,20 @@ declare module Jaid {
         *     オブジェクトストアがin-value-keyの場合は指定不要
         */
         put(storeName: string, value: any, key?: any): IRequest;
+        add_all(storeName: string, values: any[]): IRequestGroup;
+        add_all(storeName: string, values: {
+            [key: string]: any;
+        }): IRequestGroup;
+        add_all(storeName: string, values: {
+            [key: number]: any;
+        }): IRequestGroup;
+        put_all(storeName: string, values: any[]): IRequestGroup;
+        put_all(storeName: string, values: {
+            [key: string]: any;
+        }): IRequestGroup;
+        put_all(storeName: string, values: {
+            [key: number]: any;
+        }): IRequestGroup;
         deleteByKey(storeName: string, key: any): IRequest;
     }
     /**

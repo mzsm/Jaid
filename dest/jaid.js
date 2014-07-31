@@ -119,6 +119,8 @@ var Jaid;
     var OpenDBRequest = (function () {
         function OpenDBRequest(db, opener) {
             var _this = this;
+            this.oncreated = function (transaction, event) {
+            };
             this.source = db;
             this.target = opener;
             this.migrationManager = new MigrationManager(this, this.source.objectStores, this.source.customMigration);
@@ -472,6 +474,48 @@ var Jaid;
             var req = new Request(objectStore.put(value, key));
             this._registerRequest(req);
             return req;
+        };
+
+        ReadWriteTransaction.prototype.add_all = function (storeName, values) {
+            var _this = this;
+            var objectStore = this.target.objectStore(storeName);
+            var requests = [];
+            if (Array.isArray(values)) {
+                values.forEach(function (value) {
+                    var req = new Request(objectStore.add(value));
+                    _this._registerRequest(req);
+                    requests.push(req);
+                });
+            } else {
+                Object.keys(values).forEach(function (key) {
+                    var value = values[key];
+                    var req = new Request(objectStore.add(value, key));
+                    _this._registerRequest(req);
+                    requests.push(req);
+                });
+            }
+            return this.grouping(requests);
+        };
+
+        ReadWriteTransaction.prototype.put_all = function (storeName, values) {
+            var _this = this;
+            var objectStore = this.target.objectStore(storeName);
+            var requests = [];
+            if (Array.isArray(values)) {
+                values.forEach(function (value) {
+                    var req = new Request(objectStore.put(value));
+                    _this._registerRequest(req);
+                    requests.push(req);
+                });
+            } else {
+                Object.keys(values).forEach(function (key) {
+                    var value = values[key];
+                    var req = new Request(objectStore.put(value, key));
+                    _this._registerRequest(req);
+                    requests.push(req);
+                });
+            }
+            return this.grouping(requests);
         };
         ReadWriteTransaction.prototype.deleteByKey = function (storeName, key) {
             var objectStore = this.target.objectStore(storeName);

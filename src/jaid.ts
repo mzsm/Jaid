@@ -23,6 +23,16 @@ declare var IDBTransaction: {
     prototype: IDBTransaction;
     new (): IDBTransaction;
 };
+interface IDBKeyRange {
+    bound(lower: any, upper: any, lowerOpen?: boolean, upperOpen?: boolean): IDBKeyRange;
+    only(value: any): IDBKeyRange;
+    lowerBound(bound: any, open?: boolean): IDBKeyRange;
+    upperBound(bound: any, open?: boolean): IDBKeyRange;
+}
+declare var IDBKeyRange: {
+    prototype: IDBKeyRange;
+    new (): IDBKeyRange;
+};
 
 /**
  * Jaid module
@@ -314,7 +324,7 @@ module Jaid {
         private onsuccess: (event: Event) => void;
         private onerror: (error: DOMError, event: Event) => void;
         private onblocked: (event: Event) => void;
-        oncreated: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void;
+        oncreated: (transaction: IVersionChangeTransaction, event: IDBVersionChangeEvent) => void = function(transaction, event){};
         private migrationManager: MigrationManager;
 
         constructor(db: Database, opener: IDBOpenDBRequest){
@@ -757,6 +767,12 @@ module Jaid {
          *     オブジェクトストアがin-value-keyの場合は指定不要
          */
         put(storeName: string, value: any, key?: any): IRequest;
+        add_all(storeName: string, values: any[]): IRequestGroup;
+        add_all(storeName: string, values: {[key: string]: any}): IRequestGroup;
+        add_all(storeName: string, values: {[key: number]: any}): IRequestGroup;
+        put_all(storeName: string, values: any[]): IRequestGroup;
+        put_all(storeName: string, values: {[key: string]: any}): IRequestGroup;
+        put_all(storeName: string, values: {[key: number]: any}): IRequestGroup;
         deleteByKey(storeName: string, key: any): IRequest;
     }
     /**
@@ -785,6 +801,50 @@ module Jaid {
             var req = <IRequest>new Request(objectStore.put(value, key));
             this._registerRequest(req);
             return req;
+        }
+        add_all(storeName: string, values: any[]): IRequestGroup;
+        add_all(storeName: string, values: {[key: string]: any}): IRequestGroup;
+        add_all(storeName: string, values: {[key: number]: any}): IRequestGroup;
+        add_all(storeName: string, values: any): IRequestGroup{
+            var objectStore: IDBObjectStore = this.target.objectStore(storeName);
+            var requests: IRequest[] = [];
+            if(Array.isArray(values)){
+                values.forEach((value: any) => {
+                    var req = <IRequest>new Request(objectStore.add(value));
+                    this._registerRequest(req);
+                    requests.push(req);
+                });
+            }else{
+                Object.keys(values).forEach((key) => {
+                    var value: any = values[key];
+                    var req = <IRequest>new Request(objectStore.add(value, key));
+                    this._registerRequest(req);
+                    requests.push(req);
+                });
+            }
+            return this.grouping(requests);
+        }
+        put_all(storeName: string, values: any[]): IRequestGroup;
+        put_all(storeName: string, values: {[key: string]: any}): IRequestGroup;
+        put_all(storeName: string, values: {[key: number]: any}): IRequestGroup;
+        put_all(storeName: string, values: any): IRequestGroup{
+            var objectStore: IDBObjectStore = this.target.objectStore(storeName);
+            var requests: IRequest[] = [];
+            if(Array.isArray(values)){
+                values.forEach((value: any) => {
+                    var req = <IRequest>new Request(objectStore.put(value));
+                    this._registerRequest(req);
+                    requests.push(req);
+                });
+            }else{
+                Object.keys(values).forEach((key) => {
+                    var value: any = values[key];
+                    var req = <IRequest>new Request(objectStore.put(value, key));
+                    this._registerRequest(req);
+                    requests.push(req);
+                });
+            }
+            return this.grouping(requests);
         }
         deleteByKey(storeName: string, key: any): IRequest{
             var objectStore: IDBObjectStore = this.target.objectStore(storeName);
