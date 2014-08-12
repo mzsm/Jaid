@@ -1,0 +1,147 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>IndexedDBとは &mdash; Jaid 0.0.1a documentation</title>
+    
+    <link rel="stylesheet" href="_static/default.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.0.1a',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="Jaid 0.0.1a documentation" href="index.html" />
+    <link rel="next" title="Quick start" href="quick_start.html" />
+    <link rel="prev" title="Jaid’s documentation" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="quick_start.html" title="Quick start"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Jaid’s documentation"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">Jaid 0.0.1a documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="indexeddb">
+<h1>IndexedDBとは<a class="headerlink" href="#indexeddb" title="Permalink to this headline">¶</a></h1>
+<p><strong>Indexed Database API</strong> (以下、 <strong>IndexedDB</strong> ) は、(いわゆる) <strong>HTML5</strong> と呼ばれる新しい技術のひとつで、
+クライアント(Webブラウザ)側にデータを保存するためのJavaScript APIです。</p>
+<p>クライアント側にデータを保存する方法としては、前世紀から存在しているお馴染みの <em>Cookie</em> があります。
+HTML5の新技術にも、他に <em>Local Storage</em> といったものがありますが、これらが単純なKey-Value</p>
+<p>クライアント(Webブラウザ)側にNoSQLデータベースを構築し、データを保存したり取得したりできる</p>
+<p>IndexedDBを使うことにより、でも馴染み深い</p>
+<div class="section" id="id1">
+<h2>どのブラウザで使えるか<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<p><a class="reference external" href="http://caniuse.com/">Can I use...</a> というサイトによると、IndexedDBは <em>SafariとOpera miniを除く</em> <a class="reference external" href="http://caniuse.com/indexeddb">現行の主要ブラウザほとんどで既にサポートされています。</a></p>
+<p>Safariは次期バージョンであるバージョン8からサポートを開始するようです。IEと違ってSafari限定それまではFirefoxかChromeを使ってもらいましょう。</p>
+<p>IEではバージョン10以降 <a class="footnote-reference" href="#id5" id="id3">[1]</a> <a class="footnote-reference" href="#id6" id="id4">[2]</a> でサポートされていますが、複合キーなど一部の機能については実装されていないようです。
+IEでも正しく動作させるためにはこれらの機能を使用しないように注意する必要があります。</p>
+<p>Androidでは、標準ブラウザはAndroid4.4(KitKat)からサポートしています。
+4.3(Jelly Bean)以前のOSでは動作しませんが、幸いにもAndroidには自由にブラウザアプリを追加することができますので、古いOSを使っているユーザーにはFirefoxやChromeのアプリをインストールしてもらうことにしましょう。</p>
+<p>iOSでは、Mobile Safariがデスクトップ向けと同じく次期バージョン(iOS8)からのサポートとなっています。
+iOSでは残念ながらiOS7以前はどうしようもありませんが、iOSについてはAndroidと違って古いOSのサポートは素早く打ち切られますので、そのうちなんとかなることでしょう。</p>
+<table class="docutils footnote" frame="void" id="id5" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id3">[1]</a></td><td>XPは死んだ。</td></tr>
+</tbody>
+</table>
+<table class="docutils footnote" frame="void" id="id6" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id4">[2]</a></td><td>Vistaなんてなかった。</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">IndexedDBとは</a><ul>
+<li><a class="reference internal" href="#id1">どのブラウザで使えるか</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="index.html"
+                        title="previous chapter">Jaid&#8217;s documentation</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="quick_start.html"
+                        title="next chapter">Quick start</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/introduce_of_indexeddb.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="quick_start.html" title="Quick start"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Jaid’s documentation"
+             >previous</a> |</li>
+        <li><a href="index.html">Jaid 0.0.1a documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2014, mzsm.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.2.
+    </div>
+  </body>
+</html>
